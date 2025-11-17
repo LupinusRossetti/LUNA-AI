@@ -1,13 +1,17 @@
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  reactStrictMode: true,
-  assetPrefix: process.env.BASE_PATH || '',
-  basePath: process.env.BASE_PATH || '',
-  trailingSlash: true,
-  publicRuntimeConfig: {
-    root: process.env.BASE_PATH || '',
-  },
-  optimizeFonts: false,
+const dotenv = require("dotenv");
+const dotenvExpand = require("dotenv-expand");
+const fs = require("fs");
+
+const mode = process.env.APP_ENV || "fiona"; // iris/fiona
+
+const envFile = `.env.${mode}`;
+if (fs.existsSync(envFile)) {
+  dotenvExpand.expand(dotenv.config({ path: envFile }));
 }
 
-module.exports = nextConfig
+const nextConfig = {
+  reactStrictMode: true,
+  distDir: mode === "iris" ? ".next-iris" : ".next-fiona",
+};
+
+module.exports = nextConfig;
