@@ -10,8 +10,8 @@
 
 # next.js
 /.next/
-/.next-fiona/
-/.next-iris/
+/.next-A/
+/.next-B/
 /out/
 
 # production
@@ -30,6 +30,8 @@ yarn-error.log*
 # env files
 .env
 .env*.local
+.env.iris
+.env.fiona
 
 # vercel
 .vercel

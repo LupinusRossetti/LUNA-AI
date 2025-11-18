@@ -16,8 +16,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "dev:iris": "cross-env APP_ENV=iris next dev",
-    "dev:fiona": "cross-env PORT=3001 APP_ENV=fiona next dev"
+    "dev:A": "cross-env APP_ENV=.A next dev",
+    "dev:B": "cross-env PORT=3001 APP_ENV=.B next dev"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^0.0.48",

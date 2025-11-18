@@ -1,35 +1,35 @@
 @echo off
 echo =====================================
-echo  AITuberKit - Iris → Fiona 同時起動
+echo  AITuberKit - A → B 同時起動
 echo =====================================
 
-echo ▼ Iris 起動中...
-start "Iris" cmd /k "npm run dev:iris"
+echo ▼ A 起動中...
+start "A" cmd /k "npm run dev:A"
 
-echo ▼ Iris の起動を待機（3000 LISTENING）...
-:WAIT_IRIS
+echo ▼ A の起動を待機（3000 LISTENING）...
+:WAIT_A
 timeout /t 1 >nul
 netstat -ano | find ":3000" | find "LISTENING" >nul
-if %errorlevel%==1 goto WAIT_IRIS
+if %errorlevel%==1 goto WAIT_A
 
 start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" http://localhost:3000
 
-echo Iris OK！
+echo A OK！
 echo.
 
 timeout /t 3 >nul
 
-echo ▼ Fiona 起動中...
-start "Fiona" cmd /k "npm run dev:fiona"
+echo ▼ B 起動中...
+start "B" cmd /k "npm run dev:B"
 
-echo ▼ Fiona の起動を待機（3001 LISTENING）...
-:WAIT_FIONA
+echo ▼ B の起動を待機（3001 LISTENING）...
+:WAIT_B
 timeout /t 1 >nul
 netstat -ano | find ":3001" | find "LISTENING" >nul
-if %errorlevel%==1 goto WAIT_FIONA
+if %errorlevel%==1 goto WAIT_B
 
 start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" http://localhost:3001
 
-echo Fiona OK！
+echo B OK！
 echo =====================================
 exit
