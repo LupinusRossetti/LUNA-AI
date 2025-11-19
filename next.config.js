@@ -38,7 +38,12 @@ module.exports = {
   reactStrictMode: true,
   distDir: mode === ".A" ? ".next-A" : ".next-B",
 
+  webpack: (config) => {
+    config.experiments = { ...config.experiments, topLevelAwait: true };
+    return config;
+  },
+
   env: {
     NEXT_PUBLIC_SYSTEM_PROMPT: SystemPromptValue,
   },
-};
+}

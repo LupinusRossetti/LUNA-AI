@@ -32,6 +32,8 @@ export interface TransientState {
   isLive2dLoaded: boolean
   setIsLive2dLoaded: (loaded: boolean) => void
   isSpeaking: boolean
+  onAIAssistantReply: (listener: (msg: Message) => void) => void
+  emitAIAssistantReply: (msg: Message) => void
 }
 
 export type HomeState = PersistedState & TransientState
@@ -53,6 +55,29 @@ const resetSaveState = () => {
   }
 }
 
+// ==============================
+// AI 返信フック（外部向け）
+// ==============================
+let externalReplyListeners: Array<(msg: Message) => void> = []
+
+function onAIAssistantReply(listener: (msg: Message) => void) {
+  externalReplyListeners.push(listener)
+}
+
+function emitAIAssistantReply(msg: Message) {
+  for (const l of externalReplyListeners) {
+    try {
+      l(msg)
+    } catch (e) {
+      console.error("External reply listener error:", e)
+    }
+  }
+}
+
+// ==============================
+// homeStore 本体
+// ==============================
+
 const homeStore = create<HomeState>()(
   persist(
     (set, get) => ({
@@ -67,6 +92,8 @@ const homeStore = create<HomeState>()(
       slideMessages: [],
       chatProcessing: false,
       chatProcessingCount: 0,
+      onAIAssistantReply,
+      emitAIAssistantReply,
       incrementChatProcessingCount: () => {
         set(({ chatProcessingCount }) => ({
           chatProcessingCount: chatProcessingCount + 1,
@@ -215,3 +242,4 @@ homeStore.subscribe((state, prevState) => {
 })
 
 export default homeStore
+export { onAIAssistantReply, emitAIAssistantReply }

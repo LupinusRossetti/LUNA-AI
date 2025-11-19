@@ -451,8 +451,8 @@ export const processAIResponse = async (messages: Message[]) => {
           if (
             delimiterIndex !== -1 &&
             delimiterIndex >=
-              codeBlockContent.length -
-                (originalProcessableText.length + CODE_DELIMITER.length - 1)
+            codeBlockContent.length -
+            (originalProcessableText.length + CODE_DELIMITER.length - 1)
           ) {
             const actualCode = codeBlockContent.substring(0, delimiterIndex)
             const remainingAfterDelimiter = codeBlockContent.substring(
@@ -651,6 +651,19 @@ export const processAIResponse = async (messages: Message[]) => {
       content: currentMessageContent.trim(),
     })
   }
+  // === AI返信フック ===
+  try {
+    await fetch("/api/external/broadcast", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: currentMessageContent.trim(),
+      }),
+    });
+  } catch (e) {
+    console.error("broadcast error", e);
+  }
+
   if (isCodeBlock && codeBlockContent.trim()) {
     console.warn(
       'Stream ended unexpectedly while in code block state. Saving buffered code.'
@@ -845,88 +858,88 @@ export const handleSendChatFn = () => async (text: string) => {
  */
 export const handleReceiveTextFromWsFn =
   () =>
-  async (
-    text: string,
-    role?: string,
-    emotion: EmotionType = 'neutral',
-    type?: string
-  ) => {
-    const sessionId = generateSessionId()
-    if (text === null || role === undefined) return
+    async (
+      text: string,
+      role?: string,
+      emotion: EmotionType = 'neutral',
+      type?: string
+    ) => {
+      const sessionId = generateSessionId()
+      if (text === null || role === undefined) return
 
-    const ss = settingsStore.getState()
-    const hs = homeStore.getState()
-    const wsManager = webSocketStore.getState().wsManager
+      const ss = settingsStore.getState()
+      const hs = homeStore.getState()
+      const wsManager = webSocketStore.getState().wsManager
 
-    if (ss.externalLinkageMode) {
-      console.log('ExternalLinkage Mode: true')
-    } else {
-      console.log('ExternalLinkage Mode: false')
-      return
-    }
-
-    homeStore.setState({ chatProcessing: true })
-
-    if (role !== 'user') {
-      if (type === 'start') {
-        // startの場合は何もしない（textは空文字のため）
-        console.log('Starting new response')
-        wsManager?.setTextBlockStarted(false)
-      } else if (
-        hs.chatLog.length > 0 &&
-        hs.chatLog[hs.chatLog.length - 1].role === role &&
-        wsManager?.textBlockStarted
-      ) {
-        // 既存のメッセージに追加（IDを維持）
-        const lastMessage = hs.chatLog[hs.chatLog.length - 1]
-        const lastContent =
-          typeof lastMessage.content === 'string' ? lastMessage.content : ''
-
-        homeStore.getState().upsertMessage({
-          id: lastMessage.id,
-          role: role,
-          content: lastContent + text,
-        })
+      if (ss.externalLinkageMode) {
+        console.log('ExternalLinkage Mode: true')
       } else {
-        // 新しいメッセージを追加（新規IDを生成）
-        homeStore.getState().upsertMessage({
-          role: role,
-          content: text,
-        })
-        wsManager?.setTextBlockStarted(true)
+        console.log('ExternalLinkage Mode: false')
+        return
       }
 
-      if (role === 'assistant' && text !== '') {
-        try {
-          // 文ごとに音声を生成 & 再生、返答を表示
-          speakCharacter(
-            sessionId,
-            {
-              message: text,
-              emotion: emotion,
-            },
-            () => {
-              // assistantMessage is now derived from chatLog, no need to set it separately
-            },
-            () => {
-              // hs.decrementChatProcessingCount()
-            }
-          )
-        } catch (e) {
-          console.error('Error in speakCharacter:', e)
+      homeStore.setState({ chatProcessing: true })
+
+      if (role !== 'user') {
+        if (type === 'start') {
+          // startの場合は何もしない（textは空文字のため）
+          console.log('Starting new response')
+          wsManager?.setTextBlockStarted(false)
+        } else if (
+          hs.chatLog.length > 0 &&
+          hs.chatLog[hs.chatLog.length - 1].role === role &&
+          wsManager?.textBlockStarted
+        ) {
+          // 既存のメッセージに追加（IDを維持）
+          const lastMessage = hs.chatLog[hs.chatLog.length - 1]
+          const lastContent =
+            typeof lastMessage.content === 'string' ? lastMessage.content : ''
+
+          homeStore.getState().upsertMessage({
+            id: lastMessage.id,
+            role: role,
+            content: lastContent + text,
+          })
+        } else {
+          // 新しいメッセージを追加（新規IDを生成）
+          homeStore.getState().upsertMessage({
+            role: role,
+            content: text,
+          })
+          wsManager?.setTextBlockStarted(true)
+        }
+
+        if (role === 'assistant' && text !== '') {
+          try {
+            // 文ごとに音声を生成 & 再生、返答を表示
+            speakCharacter(
+              sessionId,
+              {
+                message: text,
+                emotion: emotion,
+              },
+              () => {
+                // assistantMessage is now derived from chatLog, no need to set it separately
+              },
+              () => {
+                // hs.decrementChatProcessingCount()
+              }
+            )
+          } catch (e) {
+            console.error('Error in speakCharacter:', e)
+          }
+        }
+
+        if (type === 'end') {
+          // レスポンスの終了処理
+          console.log('Response ended')
+          wsManager?.setTextBlockStarted(false)
+          homeStore.setState({ chatProcessing: false })
         }
       }
 
-      if (type === 'end') {
-        // レスポンスの終了処理
-        console.log('Response ended')
-        wsManager?.setTextBlockStarted(false)
-        homeStore.setState({ chatProcessing: false })
-      }
+      homeStore.setState({ chatProcessing: type !== 'end' })
     }
-
-    homeStore.setState({ chatProcessing: type !== 'end' })
-  }
 
 /**
  * RealtimeAPIからのテキストまたは音声データを受信したときの処理
@@ -976,8 +989,8 @@ export const handleReceiveTextFromRtFn = () => {
               message: '',
               buffer: buffer,
             },
-            () => {},
-            () => {}
+            () => { },
+            () => { }
           )
         } catch (e) {
           console.error('Error in speakCharacter:', e)
