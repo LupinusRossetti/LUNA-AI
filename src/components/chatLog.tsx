@@ -1,10 +1,19 @@
+// ============================================================================
+// ChatLog.tsx  — 完全最適化版
+// env色・名前色・左右幅8/92調整・Keifont・スライドイン対応
+// ============================================================================
+
 import Image from 'next/image'
 import { useEffect, useRef, useState } from 'react'
 import { EMOTIONS } from '@/features/messages/messages'
 
 import homeStore from '@/features/stores/home'
-import settingsStore from '@/features/stores/settings'
+import settingsStore, { uiColors } from '@/features/stores/settings'
 import { messageSelectors } from '@/features/messages/messageSelectors'
+
+// ============================================================================
+// ChatLog 本体
+// ============================================================================
 
 export const ChatLog = () => {
   const chatScrollRef = useRef<HTMLDivElement>(null)
@@ -19,13 +28,12 @@ export const ChatLog = () => {
 
   const [isDragging, setIsDragging] = useState<boolean>(false)
 
+  // 初回スクロール
   useEffect(() => {
-    chatScrollRef.current?.scrollIntoView({
-      behavior: 'auto',
-      block: 'center',
-    })
+    chatScrollRef.current?.scrollIntoView({ behavior: 'auto', block: 'center' })
   }, [])
 
+  // 新着時スクロール
   useEffect(() => {
     chatScrollRef.current?.scrollIntoView({
       behavior: 'smooth',
@@ -33,27 +41,19 @@ export const ChatLog = () => {
     })
   }, [messages])
 
+  // 横幅リサイズ
   useEffect(() => {
-    const handleMouseDown = (e: MouseEvent) => {
-      setIsDragging(true)
-    }
-
+    const handleMouseDown = () => setIsDragging(true)
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDragging) return
-
       const newWidth = e.clientX
-
       const constrainedWidth = Math.max(
         300,
         Math.min(newWidth, window.innerWidth * 0.8)
       )
-
       settingsStore.setState({ chatLogWidth: constrainedWidth })
     }
-
-    const handleMouseUp = () => {
-      setIsDragging(false)
-    }
+    const handleMouseUp = () => setIsDragging(false)
 
     const resizeHandle = resizeHandleRef.current
     if (resizeHandle) {
@@ -63,9 +63,8 @@ export const ChatLog = () => {
     }
 
     return () => {
-      if (resizeHandle) {
+      if (resizeHandle)
         resizeHandle.removeEventListener('mousedown', handleMouseDown)
-      }
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
@@ -79,6 +78,8 @@ export const ChatLog = () => {
     >
       <div className="max-h-full px-4 pt-24 pb-16 overflow-y-auto scroll-hidden">
         {messages.map((msg, i) => {
+          const isYoutube = msg.youtube === true
+
           return (
             <div key={i} ref={messages.length - 1 === i ? chatScrollRef : null}>
               {typeof msg.content === 'string' ? (
@@ -86,6 +87,7 @@ export const ChatLog = () => {
                   role={msg.role}
                   message={msg.content}
                   characterName={characterName}
+                  isYoutube={isYoutube}
                 />
               ) : (
                 <>
@@ -93,11 +95,11 @@ export const ChatLog = () => {
                     role={msg.role}
                     message={msg.content ? msg.content[0].text : ''}
                     characterName={characterName}
+                    isYoutube={isYoutube}
                   />
                   <ChatImage
                     role={msg.role}
                     imageUrl={msg.content ? msg.content[1].image : ''}
-                    characterName={characterName}
                   />
                 </>
               )}
@@ -105,12 +107,12 @@ export const ChatLog = () => {
           )
         })}
       </div>
+
+      {/* 右の resize ハンドル */}
       <div
         ref={resizeHandleRef}
         className="absolute top-0 right-0 h-full w-4 cursor-ew-resize hover:bg-secondary hover:bg-opacity-20"
-        style={{
-          cursor: isDragging ? 'grabbing' : 'ew-resize',
-        }}
+        style={{ cursor: isDragging ? 'grabbing' : 'ew-resize' }}
       >
         <div className="absolute top-1/2 right-1 h-16 w-1 bg-secondary bg-opacity-40 rounded-full transform -translate-y-1/2"></div>
       </div>
@@ -118,61 +120,99 @@ export const ChatLog = () => {
   )
 }
 
+// ============================================================================
+// Chat（テキスト）
+// ============================================================================
+
 const Chat = ({
   role,
   message,
   characterName,
+  isYoutube,
 }: {
   role: string
   message: string
   characterName: string
+  isYoutube: boolean
 }) => {
+  // 感情タグ除去
   const emotionPattern = new RegExp(`\\[(${EMOTIONS.join('|')})\\]\\s*`, 'gi')
   const processedMessage = message.replace(emotionPattern, '')
 
-  const roleColor =
-    role !== 'user' ? 'bg-secondary text-theme ' : 'bg-base-light text-primary'
-  const roleText = role !== 'user' ? 'text-secondary' : 'text-primary'
-  const offsetX = role === 'user' ? 'pl-10' : 'pr-10'
+  // ---------- UI カラー ------------
+  let ui
+  if (role === 'user') {
+    ui = isYoutube ? uiColors.listener : uiColors.streamer
+  } else {
+    const APP_ID = process.env.NEXT_PUBLIC_APP_ID
+    ui = APP_ID === 'A' ? uiColors.characterA : uiColors.characterB
+  }
+
+  // ---------- スライドアニメ ----------
+  const slideAnim =
+    role === 'user' ? 'animate-slideInRight' : 'animate-slideInLeft'
+
+  // ---------- 幅 8% / 92% 分岐 ----------
+  const isUser = role === 'user'
+  const wrapperStyle = isUser
+    ? { marginLeft: '8%', marginRight: '0%', width: '92%' } // YOU = 右寄せ
+    : { marginLeft: '0%', marginRight: '8%', width: '92%' } // AI = 左寄せ
 
   return (
-    <div className={`mx-auto ml-0 md:ml-10 lg:ml-20 my-4 ${offsetX}`}>
-      {role === 'code' ? (
-        <pre className="whitespace-pre-wrap break-words bg-[#1F2937] text-theme p-4 rounded-lg">
-          <code className="font-mono text-sm">{message}</code>
-        </pre>
-      ) : (
-        <>
-          <div
-            className={`px-6 py-2 rounded-t-lg font-bold tracking-wider ${roleColor}`}
-          >
-            {role !== 'user' ? characterName || 'CHARACTER' : 'YOU'}
-          </div>
-          <div className="px-6 py-4 bg-white rounded-b-lg">
-            <div className={`font-bold ${roleText}`}>{processedMessage}</div>
-          </div>
-        </>
-      )}
+    <div
+      className={`my-4 font-kei ${slideAnim}`}
+      style={{ ...wrapperStyle }}
+    >
+      {/* 名前ラベル */}
+      <div
+        className="px-6 py-2 rounded-t-lg tracking-wider font-kei"
+        style={{
+          backgroundColor: ui.nameBg,
+          color: ui.nameColor,
+        }}
+      >
+        {role === 'user' ? ui.name : characterName}
+      </div>
+
+      {/* セリフ枠 */}
+      <div
+        className="px-6 py-4 rounded-b-lg font-kei"
+        style={{
+          backgroundColor: ui.bg,
+          color: ui.text,
+        }}
+      >
+        {processedMessage}
+      </div>
     </div>
   )
 }
 
+// ============================================================================
+// ChatImage（画像）
+// ============================================================================
+
 const ChatImage = ({
   role,
   imageUrl,
-  characterName,
 }: {
   role: string
   imageUrl: string
-  characterName: string
 }) => {
-  const offsetX = role === 'user' ? 'pl-40' : 'pr-40'
+  const slideAnim =
+    role === 'user' ? 'animate-slideInRight' : 'animate-slideInLeft'
+
+  // 画像も 8% / 92% に調整
+  const isUser = role === 'user'
+  const wrapperStyle = isUser
+    ? { marginLeft: '8%', marginRight: '0%', width: '92%' }
+    : { marginLeft: '0%', marginRight: '8%', width: '92%' }
 
   return (
-    <div className={`mx-auto ml-0 md:ml-10 lg:ml-20 my-4 ${offsetX}`}>
+    <div className={`my-4 font-kei ${slideAnim}`} style={{ ...wrapperStyle }}>
       <Image
         src={imageUrl}
-        alt="Generated Image"
+        alt="Generated"
         className="rounded-lg"
         width={512}
         height={512}

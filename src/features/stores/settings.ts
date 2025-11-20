@@ -19,6 +19,37 @@ import {
 import { googleSearchGroundingModels } from '../constants/aiModels'
 import { migrateOpenAIModelName } from '@/utils/modelMigration'
 
+export const uiColors = {
+  listener: {
+    name: process.env.NEXT_PUBLIC_LISTENER_NAME,
+    nameColor: process.env.NEXT_PUBLIC_LISTENER_NAME_COLOR,
+    nameBg: process.env.NEXT_PUBLIC_LISTENER_COLOR,
+    text: process.env.NEXT_PUBLIC_LISTENER_TEXT_COLOR,
+    bg: process.env.NEXT_PUBLIC_LISTENER_BG,
+  },
+  streamer: {
+    name: process.env.NEXT_PUBLIC_STREAMER_NAME,
+    nameColor: process.env.NEXT_PUBLIC_STREAMER_NAME_COLOR,
+    nameBg: process.env.NEXT_PUBLIC_STREAMER_COLOR,
+    text: process.env.NEXT_PUBLIC_STREAMER_TEXT_COLOR,
+    bg: process.env.NEXT_PUBLIC_STREAMER_BG,
+  },
+  characterA: {
+    name: process.env.NEXT_PUBLIC_CHARACTER_NAME,
+    nameColor: process.env.NEXT_PUBLIC_CHARACTER_A_NAME_COLOR,
+    nameBg: process.env.NEXT_PUBLIC_CHARACTER_A_COLOR,
+    text: process.env.NEXT_PUBLIC_CHARACTER_A_TEXT_COLOR,
+    bg: process.env.NEXT_PUBLIC_CHARACTER_A_BG,
+  },
+  characterB: {
+    name: process.env.NEXT_PUBLIC_CHARACTER_NAME,
+    nameColor: process.env.NEXT_PUBLIC_CHARACTER_B_NAME_COLOR,
+    nameBg: process.env.NEXT_PUBLIC_CHARACTER_B_COLOR,
+    text: process.env.NEXT_PUBLIC_CHARACTER_B_TEXT_COLOR,
+    bg: process.env.NEXT_PUBLIC_CHARACTER_B_BG,
+  },
+}
+
 export type googleSearchGroundingModelKey =
   (typeof googleSearchGroundingModels)[number]
 

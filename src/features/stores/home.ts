@@ -1,245 +1,206 @@
-import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
-import { Message } from '@/features/messages/messages'
-import { Viewer } from '../vrmViewer/viewer'
-import { messageSelectors } from '../messages/messageSelectors'
-import { Live2DModel } from 'pixi-live2d-display-lipsyncpatch'
-import { generateMessageId } from '@/utils/messageUtils'
+import { Message } from "@/features/messages/messages";
+import { Viewer } from "../vrmViewer/viewer";
+import { messageSelectors } from "../messages/messageSelectors";
+import { generateMessageId } from "@/utils/messageUtils";
 
 export interface PersistedState {
-  userOnboarded: boolean
-  chatLog: Message[]
-  showIntroduction: boolean
+  userOnboarded: boolean;
+  chatLog: Message[];
+  showIntroduction: boolean;
 }
 
 export interface TransientState {
-  viewer: Viewer
-  live2dViewer: any
-  slideMessages: string[]
-  chatProcessing: boolean
-  chatProcessingCount: number
-  incrementChatProcessingCount: () => void
-  decrementChatProcessingCount: () => void
-  upsertMessage: (message: Partial<Message>) => void
-  backgroundImageUrl: string
-  modalImage: string
-  triggerShutter: boolean
-  webcamStatus: boolean
-  captureStatus: boolean
-  isCubismCoreLoaded: boolean
-  setIsCubismCoreLoaded: (loaded: boolean) => void
-  isLive2dLoaded: boolean
-  setIsLive2dLoaded: (loaded: boolean) => void
-  isSpeaking: boolean
-  onAIAssistantReply: (listener: (msg: Message) => void) => void
-  emitAIAssistantReply: (msg: Message) => void
+  viewer: Viewer;
+  live2dViewer: any;
+  slideMessages: string[];
+  chatProcessing: boolean;
+  chatProcessingCount: number;
+  incrementChatProcessingCount: () => void;
+  decrementChatProcessingCount: () => void;
+  upsertMessage: (message: Partial<Message>) => void;
+  backgroundImageUrl: string;
+  modalImage: string;
+  triggerShutter: boolean;
+  webcamStatus: boolean;
+  captureStatus: boolean;
+  isCubismCoreLoaded: boolean;
+  setIsCubismCoreLoaded: (loaded: boolean) => void;
+  isLive2dLoaded: boolean;
+  setIsLive2dLoaded: (loaded: boolean) => void;
+  isSpeaking: boolean;
+
+  onAIAssistantReply: (listener: (msg: Message) => void) => void;
+  emitAIAssistantReply: (msg: Message) => void;
 }
 
-export type HomeState = PersistedState & TransientState
+export type HomeState = PersistedState & TransientState;
 
-// 更新の一時的なバッファリングを行うための変数
-let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null
-const SAVE_DEBOUNCE_DELAY = 2000 // 2秒
-let lastSavedLogLength = 0 // 最後に保存したログの長さを記録
-// 履歴削除後に次回保存で新規ファイルを作成するかどうかを示すフラグ
-let shouldCreateNewFile = false
-
-// ログ保存状態をリセットする共通関数
-const resetSaveState = () => {
-  console.log('Chat log was cleared, resetting save state.')
-  lastSavedLogLength = 0
-  shouldCreateNewFile = true
-  if (saveDebounceTimer) {
-    clearTimeout(saveDebounceTimer)
-  }
-}
-
-// ==============================
-// AI 返信フック（外部向け）
-// ==============================
-let externalReplyListeners: Array<(msg: Message) => void> = []
+// ======================================================================
+// AI返信（外部向け）フック
+// ======================================================================
+let externalReplyListeners: Array<(msg: Message) => void> = [];
 
 function onAIAssistantReply(listener: (msg: Message) => void) {
-  externalReplyListeners.push(listener)
+  externalReplyListeners.push(listener);
 }
 
 function emitAIAssistantReply(msg: Message) {
   for (const l of externalReplyListeners) {
     try {
-      l(msg)
+      l(msg);
     } catch (e) {
-      console.error("External reply listener error:", e)
+      console.error("External reply listener error:", e);
     }
   }
 }
 
-// ==============================
+// ======================================================================
 // homeStore 本体
-// ==============================
+// ======================================================================
 
 const homeStore = create<HomeState>()(
   persist(
     (set, get) => ({
-      // persisted states
+      // ===============================
+      // 永続化される状態
+      // ===============================
       userOnboarded: false,
       chatLog: [],
-      showIntroduction: process.env.NEXT_PUBLIC_SHOW_INTRODUCTION !== 'false',
+      showIntroduction: process.env.NEXT_PUBLIC_SHOW_INTRODUCTION !== "false",
 
-      // transient states
+      // ===============================
+      // 一時状態
+      // ===============================
       viewer: new Viewer(),
       live2dViewer: null,
       slideMessages: [],
       chatProcessing: false,
       chatProcessingCount: 0,
+
       onAIAssistantReply,
       emitAIAssistantReply,
+
       incrementChatProcessingCount: () => {
         set(({ chatProcessingCount }) => ({
           chatProcessingCount: chatProcessingCount + 1,
-        }))
+        }));
       },
+
       decrementChatProcessingCount: () => {
         set(({ chatProcessingCount }) => ({
-          chatProcessingCount: chatProcessingCount - 1,
-        }))
+          chatProcessingCount: Math.max(0, chatProcessingCount - 1),
+        }));
       },
+
+      // ====================================================================
+      // 🔥 upsertMessage – 外部AI同期用に完全最適化
+      // ====================================================================
       upsertMessage: (message) => {
         set((state) => {
-          const currentChatLog = state.chatLog
-          const messageId = message.id ?? generateMessageId()
-          const existingMessageIndex = currentChatLog.findIndex(
-            (msg) => msg.id === messageId
-          )
+          const ss = require("@/features/stores/settings").default.getState();
+          const current = state.chatLog;
 
-          let updatedChatLog: Message[]
-
-          if (existingMessageIndex > -1) {
-            updatedChatLog = [...currentChatLog]
-            const existingMessage = updatedChatLog[existingMessageIndex]
-
-            updatedChatLog[existingMessageIndex] = {
-              ...existingMessage,
-              ...message,
-              id: messageId,
+          // 外部AIモード → handlers.ts で整形済みの最終行をそのまま使う
+          if (ss.externalLinkageMode) {
+            if (!message.role || message.content == null) {
+              return { chatLog: current };
             }
-            console.log(`Message updated: ID=${messageId}`)
-          } else {
-            if (!message.role || message.content === undefined) {
-              console.error(
-                'Cannot add message without role or content',
-                message
-              )
-              return { chatLog: currentChatLog }
-            }
-            const newMessage: Message = {
-              id: messageId,
+
+            const newMsg: Message = {
+              id: generateMessageId(),
               role: message.role,
               content: message.content,
-              ...(message.audio && { audio: message.audio }),
-              ...(message.timestamp && { timestamp: message.timestamp }),
-            }
-            updatedChatLog = [...currentChatLog, newMessage]
-            console.log(`Message added: ID=${messageId}`)
+            };
+
+            return { chatLog: [...current, newMsg] };
           }
 
-          return { chatLog: updatedChatLog }
-        })
+          // =====================================
+          // 内部AIモード（旧仕様維持）
+          // =====================================
+          if (!message.role || message.content === undefined) {
+            return { chatLog: current };
+          }
+
+          const newMessage: Message = {
+            id: generateMessageId(),
+            role: message.role,
+            content: message.content,
+          };
+          return { chatLog: [...current, newMessage] };
+        });
       },
+
+      // ==========================
+      // 各種ステータス
+      // ==========================
       backgroundImageUrl:
         process.env.NEXT_PUBLIC_BACKGROUND_IMAGE_PATH ??
-        '/backgrounds/bg-c.png',
-      modalImage: '',
+        "/backgrounds/bg-c.png",
+
+      modalImage: "",
       triggerShutter: false,
       webcamStatus: false,
       captureStatus: false,
+
       isCubismCoreLoaded: false,
       setIsCubismCoreLoaded: (loaded) =>
         set(() => ({ isCubismCoreLoaded: loaded })),
+
       isLive2dLoaded: false,
-      setIsLive2dLoaded: (loaded) => set(() => ({ isLive2dLoaded: loaded })),
+      setIsLive2dLoaded: (loaded) =>
+        set(() => ({ isLive2dLoaded: loaded })),
+
       isSpeaking: false,
     }),
+
     {
-      name: 'aitube-kit-home',
+      name: "aitube-kit-home",
+
+      // 永続化対象を最小限に
       partialize: ({ chatLog, showIntroduction }) => ({
         chatLog: messageSelectors.cutImageMessage(chatLog),
         showIntroduction,
       }),
+
       onRehydrateStorage: () => (state) => {
         if (state) {
-          lastSavedLogLength = state.chatLog.length
-          console.log('Rehydrated chat log length:', lastSavedLogLength)
+          console.log(
+            "Rehydrated chat log:",
+            state.chatLog?.length ?? 0
+          );
         }
       },
     }
   )
-)
+);
 
-// chatLogの変更を監視して差分を保存
-homeStore.subscribe((state, prevState) => {
-  if (state.chatLog !== prevState.chatLog && state.chatLog.length > 0) {
-    if (lastSavedLogLength > state.chatLog.length) {
-      resetSaveState()
-    }
+// ======================================================================
+// 🔥 チャットログ保存 – 外部AI同期中は完全停止
+// ======================================================================
+homeStore.subscribe((state, prev) => {
+  const ss = require("@/features/stores/settings").default.getState();
 
-    if (saveDebounceTimer) {
-      clearTimeout(saveDebounceTimer)
-    }
+  // 外部AI同期 → 保存 OFF
+  if (ss.externalLinkageMode) return;
 
-    saveDebounceTimer = setTimeout(() => {
-      // 新規追加 or 更新があったメッセージだけを抽出
-      const newMessagesToSave = state.chatLog.filter(
-        (msg, idx) =>
-          idx >= lastSavedLogLength || // 追加分
-          prevState.chatLog.find((p) => p.id === msg.id)?.content !==
-            msg.content // 更新分
-      )
-
-      if (newMessagesToSave.length > 0) {
-        const processedMessages = newMessagesToSave.map((msg) =>
-          messageSelectors.sanitizeMessageForStorage(msg)
-        )
-
-        console.log(`Saving ${processedMessages.length} new messages...`)
-
-        void fetch('/api/save-chat-log', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            messages: processedMessages,
-            isNewFile: shouldCreateNewFile,
-          }),
-        })
-          .then((response) => {
-            if (response.ok) {
-              lastSavedLogLength = state.chatLog.length
-              // 新規ファイルが作成された場合はフラグをリセット
-              shouldCreateNewFile = false
-              console.log(
-                'Messages saved successfully. New saved length:',
-                lastSavedLogLength
-              )
-            } else {
-              console.error('Failed to save chat log:', response.statusText)
-            }
-          })
-          .catch((error) => {
-            console.error('チャットログの保存中にエラーが発生しました:', error)
-          })
-      } else {
-        console.log('No new messages to save.')
-      }
-    }, SAVE_DEBOUNCE_DELAY)
-  } else if (
-    state.chatLog !== prevState.chatLog &&
-    state.chatLog.length === 0
-  ) {
-    resetSaveState()
+  // 内部AIモード時のみ保存
+  if (state.chatLog !== prev.chatLog && state.chatLog.length > 0) {
+    console.log("[save-chat-log] (internal AI only)");
+    void fetch("/api/save-chat-log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: state.chatLog.map((m) =>
+          messageSelectors.sanitizeMessageForStorage(m)
+        ),
+      }),
+    });
   }
-})
+});
 
-export default homeStore
-export { onAIAssistantReply, emitAIAssistantReply }
+export default homeStore;
+export { onAIAssistantReply, emitAIAssistantReply };

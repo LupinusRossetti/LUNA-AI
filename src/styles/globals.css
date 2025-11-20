@@ -69,3 +69,11 @@ body {
     background: theme('colors.secondary-hover');
   }
 }
+
+@font-face {
+  font-family: 'Keifont';
+  src: url('/fonts/keifont.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
