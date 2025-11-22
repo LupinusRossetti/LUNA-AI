@@ -6,7 +6,6 @@ import settingsStore from '@/features/stores/settings'
 import webSocketStore from '@/features/stores/websocketStore'
 import { EmotionType } from '@/features/messages/messages'
 
-///取得したコメントをストックするリストの作成（receivedMessages）
 interface TmpMessage {
   text: string
   role: string
@@ -40,6 +39,9 @@ const useExternalLinkage = ({ handleReceiveTextFromWs }: Params) => {
     [handleReceiveTextFromWs]
   )
 
+  // -----------------------------
+  // 受信メッセージ処理
+  // -----------------------------
   useEffect(() => {
     if (receivedMessages.length > 0) {
       const message = receivedMessages[0]
@@ -55,17 +57,28 @@ const useExternalLinkage = ({ handleReceiveTextFromWs }: Params) => {
     }
   }, [receivedMessages, processMessage])
 
+  // -----------------------------
+  // WebSocket 接続部分
+  // -----------------------------
   useEffect(() => {
     const ss = settingsStore.getState()
     if (!ss.externalLinkageMode) return
 
-    const handleOpen = (event: Event) => {}
+    const handleOpen = (_event: Event) => {}
     const handleMessage = async (event: MessageEvent) => {
-      const jsonData = JSON.parse(event.data)
-      setTmpMessages((prevMessages) => [...prevMessages, jsonData])
+      try {
+        const jsonData = JSON.parse(event.data)
+        setTmpMessages((prevMessages) => [...prevMessages, jsonData])
+      } catch (err) {
+        console.error("[WS] JSON parse error", err)
+      }
     }
-    const handleError = (event: Event) => {}
-    const handleClose = (event: Event) => {}
+    const handleError = (event: Event) => {
+      console.error("[WS ERROR]", event)
+    }
+    const handleClose = (event: Event) => {
+      console.warn("[WS CLOSED]", event)
+    }
 
     const handlers = {
       onOpen: handleOpen,
@@ -74,26 +87,42 @@ const useExternalLinkage = ({ handleReceiveTextFromWs }: Params) => {
       onClose: handleClose,
     }
 
-    const wsManager = webSocketStore.getState().wsManager
+    // ---- Next.js の APP_MODE を参照 ----
+    const envMode = process.env.APP_MODE?.toUpperCase() || "A"
 
     function connectWebsocket() {
-      if (wsManager?.isConnected()) return wsManager.websocket
-      return new WebSocket('ws://localhost:8000/ws')
+      const ss = settingsStore.getState()
+      const { wsUrlA, wsUrlB, wsUrlAB } = ss
+
+      let target = ""
+
+      if (envMode === "A") target = wsUrlA
+      else if (envMode === "B") target = wsUrlB
+      else target = wsUrlAB
+
+      console.log("[WebSocket] Connect to:", target)
+      return new WebSocket(target)
     }
+
+    // ★ initializeWebSocket() のたびに最新の wsManager を取得
+    const wsManager = webSocketStore.getState().wsManager
 
     webSocketStore.getState().initializeWebSocket(t, handlers, connectWebsocket)
 
+    // 自動再接続
     const reconnectInterval = setInterval(() => {
-      const ss = settingsStore.getState()
+      const st = settingsStore.getState()
+      const manager = webSocketStore.getState().wsManager
+
       if (
-        ss.externalLinkageMode &&
-        wsManager?.websocket &&
-        wsManager.websocket.readyState !== WebSocket.OPEN &&
-        wsManager.websocket.readyState !== WebSocket.CONNECTING
+        st.externalLinkageMode &&
+        manager?.websocket &&
+        manager.websocket.readyState !== WebSocket.OPEN &&
+        manager.websocket.readyState !== WebSocket.CONNECTING
       ) {
+        console.log("[WebSocket] try reconnecting...")
         homeStore.setState({ chatProcessing: false })
-        console.log('try reconnecting...')
-        wsManager.disconnect()
+        manager.disconnect()
         webSocketStore
           .getState()
           .initializeWebSocket(t, handlers, connectWebsocket)

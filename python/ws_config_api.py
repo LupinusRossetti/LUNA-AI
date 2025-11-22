@@ -24,3 +24,7 @@ def ws_config():
         "CHAR_PREFIX_A": os.getenv("CHAR_PREFIX_A"),
         "CHAR_PREFIX_B": os.getenv("CHAR_PREFIX_B"),
     }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="localhost", port=9000)

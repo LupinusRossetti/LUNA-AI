@@ -222,9 +222,8 @@ const askAIForMultiModalDecision = async (
       const textOnlyMessages = messageSelectors.cutImageMessage(recentMessages)
       textOnlyMessages.forEach((msg, index) => {
         const content = msg.content || ''
-        conversationHistory += `${index + 1}. ${
-          msg.role === 'user' ? 'ユーザー' : 'アシスタント'
-        }: ${content}\n`
+        conversationHistory += `${index + 1}. ${msg.role === 'user' ? 'ユーザー' : 'アシスタント'
+          }: ${content}\n`
       })
     }
 
@@ -407,8 +406,8 @@ export const processAIResponse = async (messages: Message[]) => {
           if (
             delimiterIndex !== -1 &&
             delimiterIndex >=
-              codeBlockContent.length -
-                (originalProcessableText.length + CODE_DELIMITER.length - 1)
+            codeBlockContent.length -
+            (originalProcessableText.length + CODE_DELIMITER.length - 1)
           ) {
             const actualCode = codeBlockContent.substring(0, delimiterIndex)
             const remainingAfterDelimiter = codeBlockContent.substring(
@@ -632,6 +631,10 @@ export const processAIResponse = async (messages: Message[]) => {
 // 画面からの送信処理（YouTube コメントもここに流す想定）
 // ============================================================
 
+// ============================================================
+// 画面からの送信処理（YouTube コメントもここに流す想定）
+// ============================================================
+
 export const handleSendChatFn = () => async (text: string) => {
   const cleaned = text.trim()
 
@@ -642,9 +645,9 @@ export const handleSendChatFn = () => async (text: string) => {
   const prefixA = (process.env.NEXT_PUBLIC_CHAR_PREFIX_A || "IR").toLowerCase()
   const prefixB = (process.env.NEXT_PUBLIC_CHAR_PREFIX_B || "FI").toLowerCase()
 
-  let target = null
+  let target: "A" | "B" | null = null
 
-  // プレフィックス判定（大小/全角/スペース対応）
+  // ---- 追加：全角・大文字対応の正規化 ----
   const normalize = (s: string) =>
     s.replace(/[Ａ-Ｚａ-ｚ]/g, (c) =>
       String.fromCharCode(c.charCodeAt(0) - 0xFEE0)
@@ -652,42 +655,58 @@ export const handleSendChatFn = () => async (text: string) => {
 
   const n = normalize(cleaned)
 
-  if (n.startsWith(prefixA.toLowerCase())) target = "A"
-  else if (n.startsWith(prefixB.toLowerCase())) target = "B"
+  // ---- 修正版：正確な prefix 判定 ----
+  if (
+    n.startsWith(prefixA + ":") ||
+    n.startsWith(prefixA + "：") ||
+    n.startsWith(prefixA)
+  ) {
+    target = "A"
+  } else if (
+    n.startsWith(prefixB + ":") ||
+    n.startsWith(prefixB + "：") ||
+    n.startsWith(prefixB)
+  ) {
+    target = "B"
+  }
 
-  // AB モードの場合は prefix 必須
-  // ソロモードの場合は対象キャラ固定
-  // target が null → コメントは AI に送らない
+  // ---- 外部AIに渡す専用処理（ABモード） ----
   if (ss.externalLinkageMode) {
     if (!wsManager?.websocket || wsManager.websocket.readyState !== WebSocket.OPEN) {
       toastStore.getState().addToast({
-        message: '外部AIに接続できません',
-        type: 'error',
+        message: "外部AIに接続できません",
+        type: "error",
       })
       return
     }
 
+    // prefix 無し → AI に送らない
     if (!target) {
-      // プレフィックスなし → AIは無視
       homeStore.getState().upsertMessage({
-        role: 'user',
+        role: "user",
         content: cleaned,
         timestamp,
       })
       return
     }
 
-    // 外部AIへ送信
+    // ---- 修正版：prefix を正確に除去 ----
+    const sendText = cleaned.replace(
+      new RegExp(`^${target}\\s*[:：]?`, "i"),
+      ""
+    )
+
     wsManager.websocket.send(
       JSON.stringify({
-        type: 'chat',
-        content: cleaned.replace(/^..../, ""), // プレフィックス除去
-        target: target, // ← A / B が characterAB.py に届く
+        type: "chat",
+        content: sendText,
+        target: target, // ← characterAB.py に届く
       })
     )
 
+    // UI にも表示
     homeStore.getState().upsertMessage({
-      role: 'user',
+      role: "user",
       content: cleaned,
       timestamp,
     })
@@ -706,111 +725,111 @@ export const handleSendChatFn = () => async (text: string) => {
  */
 export const handleReceiveTextFromWsFn =
   () =>
-  async (
-    text: string,
-    role?: string,
-    emotion: EmotionType = 'neutral',
-    type?: string
-  ) => {
-    if (text === null || role === undefined) return
+    async (
+      text: string,
+      role?: string,
+      emotion: EmotionType = 'neutral',
+      type?: string
+    ) => {
+      if (text === null || role === undefined) return
 
-    const ss = settingsStore.getState()
+      const ss = settingsStore.getState()
 
-    // 外部連携モード以外では無視
-    if (!ss.externalLinkageMode) {
-      console.log('ExternalLinkage Mode: false (ignore WS message)')
-      return
-    }
+      // 外部連携モード以外では無視
+      if (!ss.externalLinkageMode) {
+        console.log('ExternalLinkage Mode: false (ignore WS message)')
+        return
+      }
 
-    homeStore.setState({ chatProcessing: true })
+      homeStore.setState({ chatProcessing: true })
 
-    // 現状、外部AI→AITuberKit は assistant ロール想定
-    if (role === 'assistant') {
-      if (type === 'start') {
-        console.log('WS: start')
-        // 新しいレスポンス用にプレースホルダーメッセージを作成
-        externalAssistantMessageId = generateMessageId()
-        homeStore.getState().upsertMessage({
-          id: externalAssistantMessageId,
-          role: 'assistant',
-          content: '',
-        })
-      } else if (type === 'message') {
-        console.log('WS: message')
-        if (!externalAssistantMessageId) {
-          // 念のため start が来ていなくても壊れないようにする
+      // 現状、外部AI→AITuberKit は assistant ロール想定
+      if (role === 'assistant') {
+        if (type === 'start') {
+          console.log('WS: start')
+          // 新しいレスポンス用にプレースホルダーメッセージを作成
           externalAssistantMessageId = generateMessageId()
           homeStore.getState().upsertMessage({
             id: externalAssistantMessageId,
             role: 'assistant',
             content: '',
           })
-        }
-
-        // 1. 読み上げ（感情タグ付きのまま処理）
-        if (text && text.trim().length > 0) {
-          speakWholeTextWithEmotions(text)
-        }
-
-        // 2. チャットログ表示用テキスト（感情タグは削除）
-        const displayText = stripEmotionTagsForDisplay(text || '')
-
-        const hs = homeStore.getState()
-        const currentLog = hs.chatLog
-        const idx = currentLog.findIndex(
-          (m) => m.id === externalAssistantMessageId
-        )
-
-        if (idx !== -1) {
-          const target = currentLog[idx]
-          const prevContent =
-            typeof target.content === 'string' ? target.content : ''
-          const updatedContent = (prevContent + displayText).trim()
-
-          const newLog = [...currentLog]
-          newLog[idx] = {
-            ...target,
-            content: updatedContent,
+        } else if (type === 'message') {
+          console.log('WS: message')
+          if (!externalAssistantMessageId) {
+            // 念のため start が来ていなくても壊れないようにする
+            externalAssistantMessageId = generateMessageId()
+            homeStore.getState().upsertMessage({
+              id: externalAssistantMessageId,
+              role: 'assistant',
+              content: '',
+            })
           }
 
-          homeStore.setState({ chatLog: newLog })
+          // 1. 読み上げ（感情タグ付きのまま処理）
+          if (text && text.trim().length > 0) {
+            speakWholeTextWithEmotions(text)
+          }
+
+          // 2. チャットログ表示用テキスト（感情タグは削除）
+          const displayText = stripEmotionTagsForDisplay(text || '')
+
+          const hs = homeStore.getState()
+          const currentLog = hs.chatLog
+          const idx = currentLog.findIndex(
+            (m) => m.id === externalAssistantMessageId
+          )
+
+          if (idx !== -1) {
+            const target = currentLog[idx]
+            const prevContent =
+              typeof target.content === 'string' ? target.content : ''
+            const updatedContent = (prevContent + displayText).trim()
+
+            const newLog = [...currentLog]
+            newLog[idx] = {
+              ...target,
+              content: updatedContent,
+            }
+
+            homeStore.setState({ chatLog: newLog })
+          } else {
+            // 念のため見つからない場合は新規追加
+            homeStore.getState().upsertMessage({
+              id: externalAssistantMessageId,
+              role: 'assistant',
+              content: displayText,
+            })
+          }
+        } else if (type === 'end') {
+          console.log('WS: end')
+          externalAssistantMessageId = null
+          homeStore.setState({ chatProcessing: false })
         } else {
-          // 念のため見つからない場合は新規追加
+          // type 未指定（単発メッセージなど）の場合も一応対応
+          console.log('WS: single message (no type)')
+          const displayText = stripEmotionTagsForDisplay(text || '')
+          const messageId = generateMessageId()
           homeStore.getState().upsertMessage({
-            id: externalAssistantMessageId,
+            id: messageId,
             role: 'assistant',
             content: displayText,
           })
+          speakWholeTextWithEmotions(text || '')
+          homeStore.setState({ chatProcessing: false })
         }
-      } else if (type === 'end') {
-        console.log('WS: end')
-        externalAssistantMessageId = null
+      } else if (role === 'user') {
+        // 将来：外部AI側から "user ログ" を送りたい場合のために用意
+        homeStore.getState().upsertMessage({
+          role: 'user',
+          content: text,
+          timestamp: new Date().toISOString(),
+        })
         homeStore.setState({ chatProcessing: false })
       } else {
-        // type 未指定（単発メッセージなど）の場合も一応対応
-        console.log('WS: single message (no type)')
-        const displayText = stripEmotionTagsForDisplay(text || '')
-        const messageId = generateMessageId()
-        homeStore.getState().upsertMessage({
-          id: messageId,
-          role: 'assistant',
-          content: displayText,
-        })
-        speakWholeTextWithEmotions(text || '')
         homeStore.setState({ chatProcessing: false })
       }
-    } else if (role === 'user') {
-      // 将来：外部AI側から "user ログ" を送りたい場合のために用意
-      homeStore.getState().upsertMessage({
-        role: 'user',
-        content: text,
-        timestamp: new Date().toISOString(),
-      })
-      homeStore.setState({ chatProcessing: false })
-    } else {
-      homeStore.setState({ chatProcessing: false })
     }
-  }
 
 // ============================================================
 // Realtime API / Audio モード（ほぼ元のまま）
@@ -860,8 +879,8 @@ export const handleReceiveTextFromRtFn = () => {
               message: '',
               buffer,
             },
-            () => {},
-            () => {}
+            () => { },
+            () => { }
           )
         } catch (e) {
           console.error('Error in speakCharacter:', e)

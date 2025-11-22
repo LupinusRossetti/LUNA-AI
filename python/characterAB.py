@@ -48,21 +48,22 @@ print("[characterAB] Loaded prompts & connecting to:", WS_URL)
 # ======================================================
 # Gemini 応答生成
 # ======================================================
-def talk_with_gemini(user_text: str, first_speaker: str) -> str:
+def talk_with_gemini(user_text: str) -> str:
 
-    grounding = "※必要なら検索を使い、正確な情報を元に返答してください。\n" if USE_SEARCH else ""
-
-    # target=A のときは A → B → A …  
-    # target=B のときは B → A → B …
-    first = "A" if first_speaker.upper() == "A" else "B"
+    start_char = "A"  # デフォルト
+    global TARGET
+    if TARGET in ["A", "B"]:
+        start_char = TARGET
 
     prompt = (
-        f"{promptAB}\n\n"
-        f"【追加指示】\n"
-        f"掛け合いの最初の発話者は {first} とします。\n"
-        f"{grounding}"
-        f"【ユーザー入力】{user_text}\n"
-        f"掛け合いを生成してください。\n"
+        f"{system_prompt}\n"
+        "【追加ルール】\n"
+        f"・この会話は {start_char} から開始すること。\n"
+        "・A と B のセリフのみで構成。\n"
+        "・必ず 500 文字以内。\n"
+        "\n"
+        f"ユーザー入力：{user_text}\n"
+        "=== 掛け合いを生成してください ===\n"
     )
 
     res = model.generate_content(prompt)
@@ -72,10 +73,15 @@ def talk_with_gemini(user_text: str, first_speaker: str) -> str:
 # ======================================================
 # WebSocket 連携
 # ======================================================
+# === 新規追加 ===
+TARGET = None   # A または B を記録（handleSendChatFn から送られてくる）
+
+
+# ===== 修正済み：メッセージ受信部 =====
 async def connect_and_listen():
 
     async with websockets.connect(WS_URL) as ws:
-        print("[characterAB] Connected!")
+        print("[characterAB] AITuberKit に接続しました")
 
         while True:
             try:
@@ -84,44 +90,43 @@ async def connect_and_listen():
 
                 text = data.get("content")
                 msg_type = data.get("type")
-                target = data.get("target")  # ← A or B
+                target = data.get("target")   # ← ここ重要！！
+
+                if target:
+                    global TARGET
+                    TARGET = target.upper()  # "A" or "B"
 
                 if msg_type == "chat" and text:
-
-                    first = "A"
-                    if isinstance(target, str):
-                        if target.lower().startswith("b"):
-                            first = "B"
-
-                    print(f"[AB recv] text='{text}' first={first}")
+                    print(f"[AITuberKit → AB] {text} / target={TARGET}")
 
                     ai_reply = await asyncio.to_thread(
-                        talk_with_gemini, text, first
+                        talk_with_gemini, text
                     )
 
+                    # ---- 通常プロトコル ----
                     await ws.send(json.dumps({
                         "type": "start",
                         "role": "assistant",
                         "text": "",
                         "emotion": "neutral"
-                    }, ensure_ascii=False))
+                    }))
 
                     await ws.send(json.dumps({
                         "type": "message",
                         "role": "assistant",
                         "text": ai_reply,
                         "emotion": "neutral"
-                    }, ensure_ascii=False))
+                    }))
 
                     await ws.send(json.dumps({
                         "type": "end",
                         "role": "assistant",
                         "text": "",
                         "emotion": "neutral"
-                    }, ensure_ascii=False))
+                    }))
 
             except websockets.ConnectionClosed:
-                print("[characterAB] WS disconnected. Retry…")
+                print("[characterAB] 再接続待機...")
                 await asyncio.sleep(1)
                 return
 

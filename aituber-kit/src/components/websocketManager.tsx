@@ -7,14 +7,15 @@ import {
 } from '@/features/chat/handlers'
 
 export const WebSocketManager: FC = () => {
-  // ハンドラー関数を初期化
+  // ハンドラー関数だけ作る
   const handleReceiveTextFromWs = handleReceiveTextFromWsFn()
   const handleReceiveTextFromRt = handleReceiveTextFromRtFn()
 
-  // WebSocket関連の機能をここで初期化
+  // 外部連携（Python → AItuberKit）
   useExternalLinkage({ handleReceiveTextFromWs })
+
+  // RealtimeAPI（OpenAI/azure）
   useRealtimeAPI({ handleReceiveTextFromRt })
 
-  // このコンポーネントは表示要素を持たない
   return null
 }
