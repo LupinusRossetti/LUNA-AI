@@ -249,12 +249,23 @@ interface ModelType {
   modelType: 'vrm' | 'live2d'
 }
 
+// ==== A/B/AB 外部AI用の追加設定 ====
+interface ExternalAIMode {
+  wsUrlA: string
+  wsUrlB: string
+  wsUrlAB: string
+  charPrefixA: string
+  charPrefixB: string
+  appMode: "A" | "B" | "AB"
+}
+
 export type SettingsState = APIKeys &
   ModelProvider &
   Integrations &
   Character &
   General &
-  ModelType
+  ModelType &
+  ExternalAIMode
 
 // Function to get initial values from environment variables
 const getInitialValuesFromEnv = (): SettingsState => ({
@@ -439,6 +450,16 @@ const getInitialValuesFromEnv = (): SettingsState => ({
   },
   lightingIntensity:
     parseFloat(process.env.NEXT_PUBLIC_LIGHTING_INTENSITY || '1.0') || 1.0,
+
+  // ==== A/B/AB 外部AI用 ====
+  wsUrlA: "",
+  wsUrlB: "",
+  wsUrlAB: "",
+  charPrefixA: "IR",
+  charPrefixB: "FI",
+
+  // バッチから渡される（A/B/AB）
+  appMode: (process.env.APP_MODE as "A" | "B" | "AB") || "A",
 
   // General
   selectLanguage: (process.env.NEXT_PUBLIC_SELECT_LANGUAGE as Language) || 'ja',

@@ -16,6 +16,29 @@ export default function App({ Component, pageProps }: AppProps) {
     const hs = homeStore.getState()
     const ss = settingsStore.getState()
 
+    // ===== python の設定を取得 =====
+    async function loadPythonWsConfig() {
+      try {
+        const res = await fetch("http://localhost:9000/ws_config")
+        const data = await res.json()
+
+        settingsStore.setState({
+          wsUrlA: data.WS_URL_A,
+          wsUrlB: data.WS_URL_B,
+          wsUrlAB: data.WS_URL_AB,
+          charPrefixA: data.CHAR_PREFIX_A,
+          charPrefixB: data.CHAR_PREFIX_B,
+        })
+
+        console.log("[Config] Loaded from python:", data)
+      } catch (e) {
+        console.error("[Config] python から URL 読み込み失敗", e)
+      }
+    }
+
+    loadPythonWsConfig()
+
+
     if (hs.userOnboarded) {
       i18n.changeLanguage(ss.selectLanguage)
       // 保存されたテーマを適用

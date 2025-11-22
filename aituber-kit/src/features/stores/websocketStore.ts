@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { WebSocketManager } from '@/utils/WebSocketManager'
 import { TmpMessage } from '@/components/realtimeAPIUtils'
+import settingsStore from '@/features/stores/settings'
 
 interface WebSocketState {
   wsManager: WebSocketManager | null
@@ -21,15 +22,26 @@ interface WebSocketState {
 const webSocketStore = create<WebSocketState>((set, get) => ({
   wsManager: null,
   initializeWebSocket: (t, handlers = {}, connectWebsocket) => {
+    // python から取得した設定
+    const { wsUrlA, wsUrlB, wsUrlAB } = settingsStore.getState()
+    const { appMode } = settingsStore.getState() // A / B / AB どれで起動したか
+
+    let targetUrl = ""
+    if (appMode === "A") targetUrl = wsUrlA
+    else if (appMode === "B") targetUrl = wsUrlB
+    else if (appMode === "AB") targetUrl = wsUrlAB
+
+    const connectFn = () => new WebSocket(targetUrl)
+
     const defaultHandlers = {
-      onOpen: (event: Event) => {},
-      onMessage: async (event: MessageEvent) => {},
-      onError: (event: Event) => {},
-      onClose: (event: Event) => {},
+      onOpen: (event: Event) => { },
+      onMessage: async (event: MessageEvent) => { },
+      onError: (event: Event) => { },
+      onClose: (event: Event) => { },
       ...handlers,
-      connectWebsocket,
     }
-    const manager = new WebSocketManager(t, defaultHandlers, connectWebsocket)
+
+    const manager = new WebSocketManager(t, defaultHandlers, connectFn)
     manager.connect()
     set({ wsManager: manager })
   },

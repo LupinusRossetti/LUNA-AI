@@ -23,7 +23,7 @@ echo.
 
 
 REM ============================================
-REM 2) python/.env から PROMPT_FILE_B を読み込み
+REM 2) python/.env から PROMPT_FILE_B を読込
 REM ============================================
 set PROMPT_FILE=
 
@@ -36,7 +36,6 @@ if "%PROMPT_FILE%"=="" (
 )
 
 echo Using Prompt File: %PROMPT_FILE%
-set PROMPT_FILE=%PROMPT_FILE%
 echo.
 
 
@@ -62,24 +61,30 @@ timeout /t 3 >nul
 
 
 REM ============================================
-REM 5) simple_ws_server.py 起動
+REM 5) simple_ws_server 起動
 REM ============================================
 echo Starting simple_ws_server.py...
 start "WS_SERVER" cmd /k "cd C:\LUNA-AI\python && python simple_ws_server.py"
 
 
 REM ============================================
-REM 6) characterB.py 起動（PROMPT_FILE を渡す）
+REM 6) characterB.py 起動（wsB）
 REM ============================================
 echo Starting CharacterB agent...
-start "CHARACTER_B" cmd /k "cd C:\LUNA-AI\python && set PROMPT_FILE=%PROMPT_FILE% && python characterB.py"
+start "CHARACTER_B" cmd /k ^
+"cd C:\LUNA-AI\python && ^
+ set PROMPT_FILE=%PROMPT_FILE% && ^
+ set WS_URL=ws://localhost:8000/wsB && ^
+ python characterB.py"
 
 
 REM ============================================
-REM 7) AITuberKit 起動 (npm run dev:B)
+REM 7) AITuberKit 起動 (dev:B)
 REM ============================================
+set APP_MODE=B
+
 echo Starting AITuberKit (dev:B)...
-start "AITuberKit_B" cmd /k "npm run dev:B"
+start "AITuberKit_B" cmd /k "set APP_MODE=B && npm run dev"
 
 echo Waiting for port 3001...
 :WAIT_B
@@ -97,7 +102,7 @@ echo =================================
 
 
 REM ============================================
-REM 8) Chrome 以外のウィンドウを最小化
+REM 8) すべてのウィンドウを最小化（Chrome除く）
 REM ============================================
 timeout /t 2 >nul
 

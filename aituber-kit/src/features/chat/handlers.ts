@@ -632,194 +632,66 @@ export const processAIResponse = async (messages: Message[]) => {
 // 画面からの送信処理（YouTube コメントもここに流す想定）
 // ============================================================
 
-/**
- * アシスタントとの会話を行う
- * 画面のチャット欄から入力されたときに実行される処理
- * Youtubeでチャット取得した場合もこの関数を使用する
- */
 export const handleSendChatFn = () => async (text: string) => {
-  const newMessage = text
-  const timestamp = new Date().toISOString()
-
-  if (newMessage === null) return
+  const cleaned = text.trim()
 
   const ss = settingsStore.getState()
-  const sls = slideStore.getState()
   const wsManager = webSocketStore.getState().wsManager
-  const modalImage = homeStore.getState().modalImage
+  const timestamp = new Date().toISOString()
 
-  // ========================================================
-  // 外部AIモード：すべて WebSocket に流す（内部AIは使わない）
-  // ========================================================
+  const prefixA = (process.env.NEXT_PUBLIC_CHAR_PREFIX_A || "IR").toLowerCase()
+  const prefixB = (process.env.NEXT_PUBLIC_CHAR_PREFIX_B || "FI").toLowerCase()
+
+  let target = null
+
+  // プレフィックス判定（大小/全角/スペース対応）
+  const normalize = (s: string) =>
+    s.replace(/[Ａ-Ｚａ-ｚ]/g, (c) =>
+      String.fromCharCode(c.charCodeAt(0) - 0xFEE0)
+    ).toLowerCase()
+
+  const n = normalize(cleaned)
+
+  if (n.startsWith(prefixA.toLowerCase())) target = "A"
+  else if (n.startsWith(prefixB.toLowerCase())) target = "B"
+
+  // AB モードの場合は prefix 必須
+  // ソロモードの場合は対象キャラ固定
+  // target が null → コメントは AI に送らない
   if (ss.externalLinkageMode) {
-    homeStore.setState({ chatProcessing: true })
-
-    // ここに将来「接頭辞 IR/FI/#XX だけ送る」フィルタを入れる予定
-
-    if (wsManager?.websocket?.readyState === WebSocket.OPEN) {
-      homeStore.getState().upsertMessage({
-        role: 'user',
-        content: newMessage,
-        timestamp,
-      })
-
-      wsManager.websocket.send(
-        JSON.stringify({ content: newMessage, type: 'chat' })
-      )
-    } else {
+    if (!wsManager?.websocket || wsManager.websocket.readyState !== WebSocket.OPEN) {
       toastStore.getState().addToast({
-        message: i18next.t('NotConnectedToExternalAssistant'),
+        message: '外部AIに接続できません',
         type: 'error',
-        tag: 'not-connected-to-external-assistant',
       })
-      homeStore.setState({
-        chatProcessing: false,
-      })
-    }
-    return
-  }
-
-  // ========================================================
-  // ここからは内部AI（従来の AITuberKit モード）
-  // ========================================================
-
-  const sessionId = generateSessionId()
-
-  if (ss.realtimeAPIMode) {
-    if (wsManager?.websocket?.readyState === WebSocket.OPEN) {
-      homeStore.getState().upsertMessage({
-        role: 'user',
-        content: newMessage,
-        timestamp,
-      })
-    }
-    return
-  }
-
-  let systemPrompt = ss.systemPrompt || SYSTEM_PROMPT
-
-  if (ss.slideMode) {
-    if (sls.isPlaying) {
       return
     }
 
-    try {
-      const scripts = JSON.stringify(
-        require(
-          `../../../public/slides/${sls.selectedSlideDocs}/scripts.json`
-        )
-      )
-      systemPrompt = systemPrompt.replace('{{SCRIPTS}}', scripts)
-
-      let supplement = ''
-      try {
-        const response = await fetch(
-          `/api/getSupplement?slideName=${sls.selectedSlideDocs}`
-        )
-        if (!response.ok) {
-          throw new Error('Failed to fetch supplement')
-        }
-        const data = await response.json()
-        supplement = data.supplement
-        systemPrompt = systemPrompt.replace('{{SUPPLEMENT}}', supplement)
-      } catch (e) {
-        console.error('supplement.txtの読み込みに失敗しました:', e)
-      }
-
-      const answerString = await judgeSlide(newMessage, scripts, supplement)
-      const answer = JSON.parse(answerString)
-      if (answer.judge === 'true' && answer.page !== '') {
-        goToSlide(Number(answer.page))
-        systemPrompt += `\n\nEspecial Page Number is ${answer.page}.`
-      }
-    } catch (e) {
-      console.error(e)
+    if (!target) {
+      // プレフィックスなし → AIは無視
+      homeStore.getState().upsertMessage({
+        role: 'user',
+        content: cleaned,
+        timestamp,
+      })
+      return
     }
-  }
 
-  homeStore.setState({ chatProcessing: true })
-
-  // マルチモーダル対応チェック
-  if (
-    modalImage &&
-    !isMultiModalAvailable(
-      ss.selectAIService,
-      ss.selectAIModel,
-      ss.enableMultiModal,
-      ss.multiModalMode,
-      ss.customModel
+    // 外部AIへ送信
+    wsManager.websocket.send(
+      JSON.stringify({
+        type: 'chat',
+        content: cleaned.replace(/^..../, ""), // プレフィックス除去
+        target: target, // ← A / B が characterAB.py に届く
+      })
     )
-  ) {
-    toastStore.getState().addToast({
-      message: i18next.t('MultiModalNotSupported'),
-      type: 'error',
-      tag: 'multimodal-not-supported',
-    })
-    homeStore.setState({
-      chatProcessing: false,
-      modalImage: '',
+
+    homeStore.getState().upsertMessage({
+      role: 'user',
+      content: cleaned,
+      timestamp,
     })
     return
-  }
-
-  // マルチモーダルモードに基づいてメッセージコンテンツを構築
-  let userMessageContent: Message['content'] = newMessage
-  let shouldUseImage = false
-
-  if (modalImage) {
-    switch (ss.multiModalMode) {
-      case 'always':
-        shouldUseImage = true
-        break
-      case 'never':
-        shouldUseImage = false
-        break
-      case 'ai-decide':
-        // AI判断モードの場合は、AIに判断を求める
-        shouldUseImage = await askAIForMultiModalDecision(
-          newMessage,
-          modalImage,
-          ss.multiModalAiDecisionPrompt
-        )
-        break
-    }
-
-    if (shouldUseImage) {
-      userMessageContent = [
-        { type: 'text' as const, text: newMessage },
-        { type: 'image' as const, image: modalImage },
-      ]
-    }
-  }
-
-  homeStore.getState().upsertMessage({
-    role: 'user',
-    content: userMessageContent,
-    timestamp,
-  })
-
-  if (modalImage) {
-    homeStore.setState({ modalImage: '' })
-  }
-
-  const currentChatLog = homeStore.getState().chatLog
-
-  const messages: Message[] = [
-    {
-      role: 'system',
-      content: systemPrompt,
-    },
-    ...messageSelectors.getProcessedMessages(
-      currentChatLog,
-      ss.includeTimestampInUserMessage
-    ),
-  ]
-
-  try {
-    await processAIResponse(messages)
-  } catch (e) {
-    console.error(e)
-    homeStore.setState({ chatProcessing: false })
   }
 }
 

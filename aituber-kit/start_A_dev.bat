@@ -23,7 +23,7 @@ echo.
 
 
 REM ============================================
-REM 2) python\.env から PROMPT_FILE_A を読み込み
+REM 2) python/.env から PROMPT_FILE_A を読込
 REM ============================================
 set PROMPT_FILE=
 
@@ -36,7 +36,6 @@ if "%PROMPT_FILE%"=="" (
 )
 
 echo Using Prompt File: %PROMPT_FILE%
-set PROMPT_FILE=%PROMPT_FILE%
 echo.
 
 
@@ -62,24 +61,30 @@ timeout /t 3 >nul
 
 
 REM ============================================
-REM 5) simple_ws_server 起動
+REM 5) simple_ws_server 起動（通常モード）
 REM ============================================
 echo Starting simple_ws_server.py...
 start "WS_SERVER" cmd /k "cd C:\LUNA-AI\python && python simple_ws_server.py"
 
 
 REM ============================================
-REM 6) characterA.py 起動（PROMPT_FILE が正しく適用される）
+REM 6) characterA.py 起動（wsA）
 REM ============================================
 echo Starting CharacterA agent...
-start "CHARACTER_A" cmd /k "cd C:\LUNA-AI\python && set PROMPT_FILE=%PROMPT_FILE% && python characterA.py"
+start "CHARACTER_A" cmd /k ^
+"cd C:\LUNA-AI\python && ^
+ set PROMPT_FILE=%PROMPT_FILE% && ^
+ set WS_URL=ws://localhost:8000/wsA && ^
+ python characterA.py"
 
 
 REM ============================================
-REM 7) AITuberKit 起動 (npm run dev:A)
+REM 7) AITuberKit 起動 (dev:A)
 REM ============================================
+set APP_MODE=A
+
 echo Starting AITuberKit (dev:A)...
-start "AITuberKit_A" cmd /k "npm run dev:A"
+start "AITuberKit_A" cmd /k "set APP_MODE=A && npm run dev"
 
 echo Waiting for port 3000...
 :WAIT_A
@@ -92,7 +97,7 @@ start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" http://localhos
 
 echo.
 echo ========== ALL STARTED ==========
-echo   AITuberKit 起動完了！
+echo   AITuberKit (A) 起動完了！
 echo =================================
 
 
