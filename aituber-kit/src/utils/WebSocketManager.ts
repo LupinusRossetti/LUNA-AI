@@ -1,3 +1,7 @@
+// ============================================================
+// WebSocketManager.ts (完全修正版 / window.__ws 安定保証)
+// ============================================================
+
 import toastStore from '@/features/stores/toast'
 import settingsStore from '@/features/stores/settings'
 
@@ -7,12 +11,14 @@ export class WebSocketManager {
   private ws: WebSocket | null = null
   private t: TranslationFunction
   private isTextBlockStarted: boolean = false
+
   private handlers: {
     onOpen: (event: Event) => void
     onMessage: (event: MessageEvent) => Promise<void>
     onError: (event: Event) => void
     onClose: (event: Event) => void
   }
+
   private connectWebsocket: () => WebSocket | null
 
   constructor(
@@ -30,8 +36,21 @@ export class WebSocketManager {
     this.connectWebsocket = connectWebsocket
   }
 
+  // ============================================================
+  // WebSocket OPEN
+  // ============================================================
   private handleOpen = (event: Event) => {
     console.log('WebSocket connection opened:', event)
+
+    // ------------------------------------------------------------
+    // ★ create() の後ではなく open イベント発火時に必ず登録する
+    // ------------------------------------------------------------
+    if (this.ws) {
+      (window as any).__ws = this.ws
+    } else {
+      console.warn('⚠ window.__ws 代入失敗（ws == null）')
+    }
+
     this.removeToast()
     toastStore.getState().addToast({
       message: this.t('Toasts.WebSocketConnectionSuccess'),
@@ -39,9 +58,11 @@ export class WebSocketManager {
       duration: 3000,
       tag: 'websocket-connection-success',
     })
+
     this.handlers.onOpen(event)
   }
 
+  // ============================================================
   private handleMessage = async (event: MessageEvent) => {
     console.log('WebSocket received message:', event)
     await this.handlers.onMessage(event)
@@ -71,8 +92,12 @@ export class WebSocketManager {
     this.handlers.onClose(event)
   }
 
+  // ============================================================
+  // WebSocket CONNECT
+  // ============================================================
   public connect() {
     this.removeToast()
+
     toastStore.getState().addToast({
       message: this.t('Toasts.WebSocketConnectionAttempt'),
       type: 'info',
@@ -80,16 +105,27 @@ export class WebSocketManager {
       tag: 'websocket-connection-info',
     })
 
-    this.ws = this.connectWebsocket()
+    // 新しく生成
+    const newWs = this.connectWebsocket()
+    this.ws = newWs
 
-    if (!this.ws) return
+    if (!newWs) {
+      console.error('❌ connectWebsocket() が null を返しました')
+      return
+    }
 
-    this.ws.addEventListener('open', this.handleOpen)
-    this.ws.addEventListener('message', this.handleMessage)
-    this.ws.addEventListener('error', this.handleError)
-    this.ws.addEventListener('close', this.handleClose)
+    // ------------------------------------------------------------
+    // ★ open が来る前にも window.__ws を仮登録（予備）
+    // ------------------------------------------------------------
+    ;(window as any).__ws = newWs
+
+    newWs.addEventListener('open', this.handleOpen)
+    newWs.addEventListener('message', this.handleMessage)
+    newWs.addEventListener('error', this.handleError)
+    newWs.addEventListener('close', this.handleClose)
   }
 
+  // ============================================================
   public removeToast() {
     toastStore.getState().removeToast('websocket-connection-error')
     toastStore.getState().removeToast('websocket-connection-success')
@@ -121,7 +157,6 @@ export class WebSocketManager {
 
     this.disconnect()
     this.connect()
-
     return true
   }
 

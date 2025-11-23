@@ -645,7 +645,16 @@ export const handleSendChatFn = () => async (text: string) => {
 
   const ss = settingsStore.getState()
   const sls = slideStore.getState()
-  const wsManager = webSocketStore.getState().wsManager
+
+  // ▼ WebSocketStore の形が
+  //   - 新実装: { ws }
+  //   - 旧実装: { wsManager: { websocket } }
+  // のどちらでも動くように両対応にしている
+  const wsState = webSocketStore.getState() as any
+  const ws: WebSocket | null =
+    (wsState.ws as WebSocket | null) ??
+    (wsState.wsManager?.websocket as WebSocket | null)
+
   const modalImage = homeStore.getState().modalImage
 
   // ========================================================
@@ -654,18 +663,37 @@ export const handleSendChatFn = () => async (text: string) => {
   if (ss.externalLinkageMode) {
     homeStore.setState({ chatProcessing: true })
 
-    // ここに将来「接頭辞 IR/FI/#XX だけ送る」フィルタを入れる予定
+    // ★ ログ表示用：画像が付いている場合は text+image の複合コンテンツとして記録
+    const userMessageContent: Message['content'] = modalImage
+      ? [
+          { type: 'text' as const, text: newMessage },
+          { type: 'image' as const, image: modalImage },
+        ]
+      : newMessage
 
-    if (wsManager?.websocket?.readyState === WebSocket.OPEN) {
-      homeStore.getState().upsertMessage({
+    homeStore.getState().upsertMessage({
+      role: 'user',
+      content: userMessageContent,
+      timestamp,
+    })
+
+    // ★ オーケストレータへ送るペイロード
+    //   画像は「ユーザーがチャット欄から送信した時だけ」付与する
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      const payload: any = {
+        type: 'chat',
         role: 'user',
-        content: newMessage,
+        text: newMessage,
         timestamp,
-      })
+      }
 
-      wsManager.websocket.send(
-        JSON.stringify({ content: newMessage, type: 'chat' })
-      )
+      if (modalImage) {
+        payload.image = modalImage
+        // 送信後はモーダル画像をクリアしておく
+        homeStore.setState({ modalImage: '' })
+      }
+
+      ws.send(JSON.stringify(payload))
     } else {
       toastStore.getState().addToast({
         message: i18next.t('NotConnectedToExternalAssistant'),
@@ -686,7 +714,7 @@ export const handleSendChatFn = () => async (text: string) => {
   const sessionId = generateSessionId()
 
   if (ss.realtimeAPIMode) {
-    if (wsManager?.websocket?.readyState === WebSocket.OPEN) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
       homeStore.getState().upsertMessage({
         role: 'user',
         content: newMessage,
@@ -877,6 +905,8 @@ export const handleReceiveTextFromWsFn =
 
         // 1. 読み上げ（感情タグ付きのまま処理）
         if (text && text.trim().length > 0) {
+          // emotion 引数は将来の拡張用だが、
+          // 現状はテキスト内の [happy] などを優先して処理する
           speakWholeTextWithEmotions(text)
         }
 

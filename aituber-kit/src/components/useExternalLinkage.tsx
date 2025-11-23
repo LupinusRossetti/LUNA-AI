@@ -1,17 +1,15 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import homeStore from '@/features/stores/home'
 import settingsStore from '@/features/stores/settings'
 import webSocketStore from '@/features/stores/websocketStore'
 import { EmotionType } from '@/features/messages/messages'
 
-///取得したコメントをストックするリストの作成（receivedMessages）
 interface TmpMessage {
   text: string
   role: string
-  emotion: EmotionType
-  type: string
+  emotion?: EmotionType
+  type?: string
 }
 
 interface Params {
@@ -26,85 +24,106 @@ interface Params {
 const useExternalLinkage = ({ handleReceiveTextFromWs }: Params) => {
   const { t } = useTranslation()
   const externalLinkageMode = settingsStore((s) => s.externalLinkageMode)
-  const [receivedMessages, setTmpMessages] = useState<TmpMessage[]>([])
 
-  const processMessage = useCallback(
-    async (message: TmpMessage) => {
-      await handleReceiveTextFromWs(
-        message.text,
-        message.role,
-        message.emotion,
-        message.type
-      )
-    },
-    [handleReceiveTextFromWs]
-  )
+  // Queue
+  const queueRef = useRef<TmpMessage[]>([])
+  const isProcessing = useRef(false)
 
-  useEffect(() => {
-    if (receivedMessages.length > 0) {
-      const message = receivedMessages[0]
+  const processQueue = async () => {
+    if (isProcessing.current) return
+    isProcessing.current = true
+
+    while (queueRef.current.length > 0) {
+      const msg = queueRef.current.shift()
+      if (!msg) continue
+
       if (
-        message.role === 'output' ||
-        message.role === 'executing' ||
-        message.role === 'console'
+        msg.role === 'output' ||
+        msg.role === 'executing' ||
+        msg.role === 'console'
       ) {
-        message.role = 'code'
+        msg.role = 'code'
       }
-      setTmpMessages((prev) => prev.slice(1))
-      processMessage(message)
+
+      await handleReceiveTextFromWs(
+        msg.text,
+        msg.role,
+        msg.emotion,
+        msg.type
+      )
     }
-  }, [receivedMessages, processMessage])
+
+    isProcessing.current = false
+  }
+
+  const handleMessage = async (event: MessageEvent) => {
+    try {
+      const json = JSON.parse(event.data)
+      queueRef.current.push(json)
+      processQueue()
+    } catch (e) {
+      console.log("[WS] non-JSON:", event.data)
+    }
+  }
 
   useEffect(() => {
     const ss = settingsStore.getState()
     if (!ss.externalLinkageMode) return
 
-    const handleOpen = (event: Event) => {}
-    const handleMessage = async (event: MessageEvent) => {
-      const jsonData = JSON.parse(event.data)
-      setTmpMessages((prevMessages) => [...prevMessages, jsonData])
+    // ★★★ 多重初期化を完全禁止 ★★★
+    const wsState = webSocketStore.getState()
+    if (wsState.wsManager) {
+      console.log("[useExternalLinkage] active WS exists → init SKIP")
+      return
     }
-    const handleError = (event: Event) => {}
-    const handleClose = (event: Event) => {}
+
+    const handleOpen = () => {
+      console.log("[WS] connected")
+    }
 
     const handlers = {
       onOpen: handleOpen,
       onMessage: handleMessage,
-      onError: handleError,
-      onClose: handleClose,
+      onError: () => {},
+      onClose: () => {},
     }
-
-    const wsManager = webSocketStore.getState().wsManager
 
     function connectWebsocket() {
-      if (wsManager?.isConnected()) return wsManager.websocket
-      return new WebSocket('ws://localhost:8000/ws')
+      const winEnv = (window as any).__env ?? {}
+      const wsUrl  = winEnv.NEXT_PUBLIC_EXTERNAL_WS_URL
+      const wsPath = winEnv.NEXT_PUBLIC_EXTERNAL_WS_PATH
+
+      const url = `${wsUrl.replace(/\/$/, "")}/${wsPath}`
+      console.log("[connectWebsocket] →", url)
+
+      return new WebSocket(url)
     }
 
+    // 初期化（1回だけ）
     webSocketStore.getState().initializeWebSocket(t, handlers, connectWebsocket)
 
-    const reconnectInterval = setInterval(() => {
-      const ss = settingsStore.getState()
+    // 定期再接続監視
+    const interval = setInterval(() => {
+      const state = webSocketStore.getState()
+      const wsManager = state.wsManager
+
       if (
         ss.externalLinkageMode &&
         wsManager?.websocket &&
         wsManager.websocket.readyState !== WebSocket.OPEN &&
         wsManager.websocket.readyState !== WebSocket.CONNECTING
       ) {
-        homeStore.setState({ chatProcessing: false })
-        console.log('try reconnecting...')
-        wsManager.disconnect()
-        webSocketStore
-          .getState()
-          .initializeWebSocket(t, handlers, connectWebsocket)
+        console.log("[WS] reconnecting...")
+        state.disconnect()
+        state.initializeWebSocket(t, handlers, connectWebsocket)
       }
     }, 2000)
 
     return () => {
-      clearInterval(reconnectInterval)
+      clearInterval(interval)
       webSocketStore.getState().disconnect()
     }
-  }, [externalLinkageMode, t])
+  }, [externalLinkageMode, t, handleReceiveTextFromWs])
 
   return null
 }
