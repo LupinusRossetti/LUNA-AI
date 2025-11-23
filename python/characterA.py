@@ -14,7 +14,7 @@ load_dotenv()
 API_KEY = os.environ.get("GOOGLE_API_KEY")
 MODEL = os.environ.get("MODEL", "gemini-2.0-flash")
 PROMPT_FILE = os.environ.get("PROMPT_FILE")
-WS_URL = os.environ.get("WS_URL", "ws://localhost:8000/ws")
+WS_URL = os.environ.get("WS_URL", "ws://localhost:8765/ws")
 USE_SEARCH = os.environ.get("USE_SEARCH_GROUNDING", "false") == "true"
 
 if not API_KEY:
