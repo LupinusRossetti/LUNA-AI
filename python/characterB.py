@@ -2,19 +2,18 @@ import os
 import json
 import asyncio
 import websockets
-import requests
 from dotenv import load_dotenv
 import google.generativeai as genai
 
 # ============================================
-# .env 読込 (.env.B を想定)
+# .env 読み込み
 # ============================================
 load_dotenv()
 
 API_KEY = os.environ.get("GOOGLE_API_KEY")
 MODEL = os.environ.get("MODEL", "gemini-2.0-flash")
 PROMPT_FILE = os.environ.get("PROMPT_FILE")
-WS_URL = os.environ.get("WS_URL", "ws://localhost:8765/ws")
+WS_URL = os.environ.get("WS_URL", "ws://localhost:8765/wsB")
 USE_SEARCH = os.environ.get("USE_SEARCH_GROUNDING", "false") == "true"
 
 if not API_KEY:
@@ -39,21 +38,19 @@ print(f"[characterB] プロンプト読込成功: {PROMPT_FILE}")
 print(f"[characterB] 接続開始: {WS_URL}")
 
 # ============================================
-# Gemini 問い合わせ（全文返却）
+# Gemini 返答関数
 # ============================================
 def talk_with_gemini(user_text: str) -> str:
 
     grounding_instruction = ""
     if USE_SEARCH:
-        grounding_instruction = (
-            "※必要に応じて検索し、信頼できる情報を元に答えてください。\n"
-        )
+        grounding_instruction = "必要に応じて検索して回答してください。\n"
 
     prompt = (
         f"{system_prompt}\n"
         f"{grounding_instruction}"
         f"ユーザー: {user_text}\n"
-        f"フィオナとして返答してください："
+        f"あなた（キャラB）として返答してください："
     )
 
     res = model.generate_content(prompt)
@@ -73,43 +70,41 @@ async def connect_and_listen():
                 raw = await ws.recv()
                 data = json.loads(raw)
 
-                text = data.get("content")
+                role = data.get("role")
                 msg_type = data.get("type")
+                text = data.get("text")
 
-                # ユーザーからのチャット
-                if msg_type == "chat" and text:
-                    print(f"[From AITuberKit] {text}")
+                # ログ
+                print(f"[RECV] {data}")
 
-                    # Gemini へ問い合わせ（全文）
+                # --- user が chat を送った時だけ返答 ---
+                if role == "user" and msg_type == "chat" and text:
+                    print(f"[USER] {text}")
+
                     ai_reply = await asyncio.to_thread(talk_with_gemini, text)
 
-                    # ============================================
-                    # AITuberKit 正規プロトコル
-                    # start → message（全文）→ end
-                    # ============================================
+                    # --------------------------------------------
+                    # 正規プロトコル：start → message → end
+                    # --------------------------------------------
                     await ws.send(json.dumps({
-                        "type": "start",
                         "role": "assistant",
-                        "text": "",
-                        "emotion": "neutral"
+                        "type": "start"
                     }, ensure_ascii=False))
-                    print("[SEND_B] assistant start")
+                    print("[SEND_B] start")
 
                     await ws.send(json.dumps({
-                        "type": "message",
                         "role": "assistant",
+                        "type": "message",
                         "text": ai_reply,
                         "emotion": "neutral"
                     }, ensure_ascii=False))
-                    print("[SEND_B] assistant message (full text)")
+                    print("[SEND_B] message (full)")
 
                     await ws.send(json.dumps({
-                        "type": "end",
                         "role": "assistant",
-                        "text": "",
-                        "emotion": "neutral"
+                        "type": "end"
                     }, ensure_ascii=False))
-                    print("[SEND_B] assistant end")
+                    print("[SEND_B] end")
 
             except websockets.ConnectionClosed:
                 print("[characterB] WebSocket が切断されました。再接続します...")
