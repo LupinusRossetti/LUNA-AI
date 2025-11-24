@@ -6,7 +6,7 @@
     "dev": "next dev",
     "dev-https": "next dev --experimental-https",
     "build": "next build",
-    "start": "next build && next start",
+    "start": "next start",
     "start:A": "cross-env APP_ENV=A next start -p 3000",
     "start:B": "cross-env APP_ENV=B next start -p 3001",
     "clean": "rimraf .next .next-A .next-B",
@@ -22,8 +22,8 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "external:ws": "node ./src/server/externalWsServer.js",
-    "dev:A": "cross-env APP_ENV=A next dev",
-    "dev:B": "cross-env PORT=3001 APP_ENV=B next dev"
+    "dev:A": "cross-env DOTENV_CONFIG_PATH=.env.A APP_ENV=A next dev",
+    "dev:B": "cross-env DOTENV_CONFIG_PATH=.env.B NEXT_DEV_SERVER_PORT=3001 APP_ENV=B next dev"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^0.0.48",
