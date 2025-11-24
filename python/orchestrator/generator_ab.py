@@ -22,15 +22,16 @@ import datetime
 
 class GeneratorAB:
     def __init__(self):
-        # サーチグラウンディング有効化 (google-generativeai 0.8.5 互換)
-        # genai.Tool が存在しないため、辞書形式で指定
-        # disable_attribution はバージョンによって存在しない可能性があるため削除
-        self.tools = [
-            {'google_search_retrieval': {}}
-        ]
+        # サーチグラウンディング有効化を試みたが、google-generativeai 0.8.5 では
+        # 複数のフィールド名 (google_search_retrieval, google_search) を試しても
+        # ValueError が発生するため、一時的に無効化
+        # 代わりにシステムプロンプトに現在日時を注入することで日付関連の質問に対応
+        # self.tools = [
+        #     {'google_search': {}}
+        # ]
         self.model = genai.GenerativeModel(
             MODEL,
-            tools=self.tools
+            # tools=self.tools  # 一時的に無効化
         )
         self.tagA = TAG_A
         self.tagB = TAG_B
