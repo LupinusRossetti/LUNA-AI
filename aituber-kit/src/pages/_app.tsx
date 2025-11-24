@@ -18,9 +18,6 @@ import '@/styles/themes.css'
 
 export default function App({ Component, pageProps }: AppProps) {
 
-  // ★ 外部WS 起動
-  useExternalLinkage({ handleReceiveTextFromWs: handleReceiveTextFromWsFn() })
-
   useEffect(() => {
     const hs = homeStore.getState()
     const ss = settingsStore.getState()
@@ -52,11 +49,6 @@ export default function App({ Component, pageProps }: AppProps) {
 
   return (
     <>
-      {/* ★ env-loader.js を読み込むために必要 */}
-      <Head>
-        <script src="/env-loader.js"></script>
-      </Head>
-
       <Component {...pageProps} />
       <Analytics />
     </>

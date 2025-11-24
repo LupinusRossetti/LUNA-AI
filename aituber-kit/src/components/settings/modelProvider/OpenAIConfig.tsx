@@ -90,13 +90,17 @@ export const OpenAIConfig = ({
 
   const handleUpdate = useCallback(() => {
     const wsManager = webSocketStore.getState().wsManager
-    if (!wsManager || !wsManager.reconnect()) {
+
+    // reconnect は存在しないため削除し、connect() のみ呼ぶ
+    if (!wsManager) {
       toastStore.getState().addToast({
         message: t('Toasts.WebSocketReconnectFailed'),
         type: 'error',
-        duration: 3000,
       })
+      return
     }
+
+    wsManager.connect()
   }, [t])
 
   const handleModelChange = useCallback(

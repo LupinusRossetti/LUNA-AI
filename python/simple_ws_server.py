@@ -1,69 +1,56 @@
+# simple_ws_server.py 改修版
 import asyncio
-import websockets
-import json
+from aiohttp import web, WSMsgType
 
-# ============================================
-# 部屋（A / B / AB）
-# ============================================
 rooms = {
-    "wsA": set(),
-    "wsB": set(),
-    "wsAB": set(),
+    "A": set(),
+    "B": set(),
+    "WA": set(),
+    "WB": set(),
+    "wsAB": set(),   # ★ ログ配送ルーム
 }
 
-def detect_room(path: str) -> str:
-    """
-    /wsA → wsA
-    /wsB → wsB
-    /wsAB → wsAB
-    どれでもない場合は wsA にフォールバック
-    """
-    key = path.replace("/", "")
-    return key if key in rooms else "wsA"
+def get_room_from_path(path: str) -> str:
+    clean = path.replace("/", "")
+    return clean if clean in rooms else None
 
-# ============================================
-# メインハンドラ：完全中継専用
-# ============================================
-async def handler(websocket, path):
-    room = detect_room(path)
-    rooms[room].add(websocket)
+async def websocket_handler(request):
+    path = request.path.replace("/", "")
+    room = get_room_from_path(path)
 
-    print(f"[WS] Connected → room={room}")
+    if room is None:
+        return web.Response(status=404, text="Invalid WS path")
+
+    ws = web.WebSocketResponse(heartbeat=20)
+    await ws.prepare(request)
+
+    print(f"[WS] Client connected → room={room}")
+    rooms[room].add(ws)
 
     try:
-        async for message in websocket:
-            print(f"[{room}] Received(raw): {message}")
+        async for msg in ws:
+            if msg.type == WSMsgType.TEXT:
+                data = msg.data
 
-            # JSON ONLY
-            try:
-                data = json.loads(message)
-            except:
-                print(f"[WARN] Non-JSON ignored: {message}")
-                continue
+                # ★ wsAB → A/B にブロードキャスト
+                if room == "wsAB":
+                    for target_room in ["A", "B"]:
+                        for client in rooms[target_room]:
+                            await client.send_str(data)
 
-            # 中継（送信元を含む全員に送る = 仕様上問題なし）
-            for ws in list(rooms[room]):
-                try:
-                    await ws.send(json.dumps(data, ensure_ascii=False))
-                except Exception as e:
-                    print(f"[WS SEND ERROR] {e}")
-
-    except Exception as e:
-        print(f"[WS ERROR] {e}")
-
+            elif msg.type == WSMsgType.ERROR:
+                print(f"[WS] Error: {ws.exception()}")
     finally:
-        rooms[room].discard(websocket)
-        print(f"[WS] Disconnected → room={room}")
+        # ★ disconnect cleanup
+        if ws in rooms[room]:
+            rooms[room].remove(ws)
+        print(f"[WS] Client disconnected → room={room}")
 
-# ============================================
-# サーバ起動
-# ============================================
-async def main():
-    port = 8765
-    print(f"[WS] Simple WebSocket Server starting at ws://localhost:{port} ...")
+    return ws
 
-    async with websockets.serve(handler, "localhost", port):
-        await asyncio.Future()  # run forever
+app = web.Application()
+app.add_routes([web.get("/{tail:.*}", websocket_handler)])
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    print("WS server at ws://localhost:8765 ...")
+    web.run_app(app, port=8765)

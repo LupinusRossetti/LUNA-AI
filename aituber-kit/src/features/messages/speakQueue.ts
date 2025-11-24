@@ -3,6 +3,32 @@ import homeStore from '@/features/stores/home'
 import settingsStore from '@/features/stores/settings'
 import { Live2DHandler } from './live2dHandler'
 
+// ========================================
+// WebSocket（外部連携用）をここで保持できるようにする
+// ========================================
+let externalWs: WebSocket | null = null;
+
+export function setExternalWs(ws: WebSocket) {
+  externalWs = ws;
+}
+
+// 発話完了したら Python へ通知
+export function notifySpeechEnd(turnId: number | null = null) {
+  if (externalWs && externalWs.readyState === WebSocket.OPEN) {
+    const winEnv = (window as any).__env ?? {};
+    const appId = winEnv.NEXT_PUBLIC_APP_ID || null;
+
+    externalWs.send(
+      JSON.stringify({
+        type: "speech_end",
+        character: appId,   // "A" or "B" を送る
+        turnId: turnId,     // Python のターン番号
+      })
+    );
+  }
+}
+
+
 type SpeakTask = {
   sessionId: string
   audioBuffer: ArrayBuffer
@@ -20,6 +46,16 @@ export class SpeakQueue {
   private static _instance: SpeakQueue | null = null
   private stopped = false
   private static stopTokenCounter = 0
+  // ★ 追加：Pythonから受け取ったターン番号を保持する
+  private currentTurnId: number | null = null;
+
+  public setTurnId(turnId: number | null) {
+    this.currentTurnId = turnId;
+  }
+
+  public getTurnId() {
+    return this.currentTurnId;
+  }
 
   public static get currentStopToken() {
     return SpeakQueue.stopTokenCounter
@@ -185,6 +221,7 @@ export class SpeakQueue {
           )
         }
       })
+      notifySpeechEnd(this.getTurnId());
     }
 
     return isComplete

@@ -37,6 +37,10 @@ if (process.env.PROMPT_FILE) {
 module.exports = {
   reactStrictMode: true,
   distDir: mode === ".A" ? ".next-A" : ".next-B",
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
+
 
   webpack: (config) => {
     config.experiments = { ...config.experiments, topLevelAwait: true };

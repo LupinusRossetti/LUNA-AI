@@ -7,6 +7,7 @@ export type Message = {
   audio?: { id: string }
   timestamp?: string
   type?: string
+  youtube?: boolean
 }
 
 export const EMOTIONS = [

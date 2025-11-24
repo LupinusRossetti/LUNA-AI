@@ -51,13 +51,17 @@ export const AzureConfig = ({
 
   const handleUpdate = useCallback(() => {
     const wsManager = webSocketStore.getState().wsManager
-    if (!wsManager || !wsManager.reconnect()) {
+
+    // reconnect メソッドは存在しないため、呼び出しを削除
+    if (!wsManager) {
       toastStore.getState().addToast({
         message: t('Toasts.WebSocketReconnectFailed'),
         type: 'error',
-        duration: 3000,
       })
+      return
     }
+
+    wsManager.connect()
   }, [t])
 
   const handleMultiModalToggle = useCallback(() => {

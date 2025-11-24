@@ -17,6 +17,7 @@ import toastStore from '@/features/stores/toast'
 import { generateMessageId } from '@/utils/messageUtils'
 import { isMultiModalAvailable } from '@/features/constants/aiModels'
 import { SYSTEM_PROMPT } from '@/features/constants/systemPromptConstants'
+import { SpeakQueue } from '@/features/messages/speakQueue';
 
 // ============================================================
 // 共通定数・ユーティリティ
@@ -33,25 +34,21 @@ let externalAssistantMessageId: string | null = null
 
 /**
  * 感情タグ [happy] などを UI 表示用に削除する
- * 例: "[happy] こんにちは！" -> "こんにちは！"
  */
 const stripEmotionTagsForDisplay = (text: string): string => {
   return text.replace(/\[[^\]]+?\]/g, '').trim()
 }
 
 /**
- * テキストから感情タグ `[...]` を抽出する
- * @param text 入力テキスト
- * @returns 感情タグと残りのテキスト
+ * テキストから感情タグ `[...]` を抽出
  */
 const extractEmotion = (
   text: string
 ): { emotionTag: string; remainingText: string } => {
-  // 先頭のスペースを無視して、感情タグを検出
   const emotionMatch = text.match(/^\s*\[(.*?)\]/)
   if (emotionMatch?.[0]) {
     return {
-      emotionTag: emotionMatch[0].trim(), // タグ自体の前後のスペースは除去
+      emotionTag: emotionMatch[0].trim(),
       remainingText: text
         .slice(text.indexOf(emotionMatch[0]) + emotionMatch[0].length)
         .trimStart(),
@@ -61,9 +58,7 @@ const extractEmotion = (
 }
 
 /**
- * テキストから文法的に区切りの良い文を抽出する
- * @param text 入力テキスト
- * @returns 抽出された文と残りのテキスト
+ * テキストから文として区切れる部分だけ取り出す
  */
 const extractSentence = (
   text: string
@@ -81,10 +76,7 @@ const extractSentence = (
 }
 
 /**
- * 発話と関連する状態更新を行う
- * @param sessionId セッションID
- * @param sentence 発話する文
- * @param emotionTag 感情タグ (例: "[neutral]")
+ * 声再生とUI同期処理
  */
 const handleSpeakAndStateUpdate = (
   sessionId: string,
@@ -97,7 +89,7 @@ const handleSpeakAndStateUpdate = (
     ? (emotionTag.slice(1, -1).toLowerCase() as EmotionType)
     : 'neutral'
 
-  // 発話不要/不可能な文字列だった場合はスキップ
+  // 発話不要な記号列は無視
   if (
     sentence === '' ||
     sentence.replace(
@@ -129,18 +121,16 @@ const handleSpeakAndStateUpdate = (
 }
 
 /**
- * コードブロックを取り除いたテキストを返す（喋らせる必要はないので削除）
+ * コードブロック削除
  */
 const removeCodeBlocks = (input: string): string => {
   if (!input.includes(CODE_DELIMITER)) return input
   const parts = input.split(CODE_DELIMITER)
-  // ``` の外側 (偶数インデックス) だけ結合
   return parts.filter((_, idx) => idx % 2 === 0).join('')
 }
 
 /**
- * 1つのまとまったテキストを感情タグ付きで順番に発話させる
- * 外部AIからの最終テキストに使用する
+ * 感情タグ付きテキストを順番にしゃべる
  */
 const speakWholeTextWithEmotions = (text: string) => {
   const sessionId = generateSessionId()
@@ -153,12 +143,12 @@ const speakWholeTextWithEmotions = (text: string) => {
   while (localRemaining.length > 0) {
     const prev = localRemaining
 
-    const { emotionTag, remainingText: textAfterEmotion } =
+    const { emotionTag, remainingText: afterEmotion } =
       extractEmotion(localRemaining)
     if (emotionTag) currentEmotionTag = emotionTag
 
-    const { sentence, remainingText: textAfterSentence } =
-      extractSentence(textAfterEmotion)
+    const { sentence, remainingText: afterSentence } =
+      extractSentence(afterEmotion)
 
     if (sentence) {
       handleSpeakAndStateUpdate(
@@ -167,13 +157,9 @@ const speakWholeTextWithEmotions = (text: string) => {
         currentEmotionTag,
         currentSlideMessagesRef
       )
-
-      localRemaining = textAfterSentence
-      if (!textAfterSentence) {
-        currentEmotionTag = ''
-      }
+      localRemaining = afterSentence
+      if (!afterSentence) currentEmotionTag = ''
     } else {
-      // これ以上安全に分割できないので、残りをまとめて読む
       if (localRemaining.trim().length > 0) {
         handleSpeakAndStateUpdate(
           sessionId,
@@ -185,50 +171,36 @@ const speakWholeTextWithEmotions = (text: string) => {
       break
     }
 
-    // 念のため無限ループ防止
     if (localRemaining === prev) {
       console.warn('speakWholeTextWithEmotions stuck, breaking:', prev)
       break
     }
   }
 }
-
 // ============================================================
-// マルチモーダル判定用（内部AI用・将来 Gemini Vision もここを差し替え）
+// マルチモーダル判定（内部AI用）
 // ============================================================
 
-/**
- * AI判断機能でマルチモーダルを使用するかどうかを決定する
- * @param userMessage ユーザーメッセージ
- * @param image 画像データ (base64 等)
- * @param decisionPrompt AI判断用プロンプト
- * @returns 画像を使用するかどうか
- */
 const askAIForMultiModalDecision = async (
   userMessage: string,
   image: string,
   decisionPrompt: string
 ): Promise<boolean> => {
   try {
-    // 直近の会話履歴を取得（最新3つまで）
     const currentChatLog = homeStore.getState().chatLog
     const recentMessages = currentChatLog.slice(-3)
 
-    // 会話履歴をテキストとして構築
     let conversationHistory = ''
     if (recentMessages.length > 0) {
       conversationHistory = '\n\n直近の会話履歴:\n'
-      // cutImageMessage関数を使用して画像メッセージをテキストに変換
       const textOnlyMessages = messageSelectors.cutImageMessage(recentMessages)
       textOnlyMessages.forEach((msg, index) => {
         const content = msg.content || ''
-        conversationHistory += `${index + 1}. ${
-          msg.role === 'user' ? 'ユーザー' : 'アシスタント'
-        }: ${content}\n`
+        conversationHistory += `${index + 1}. ${msg.role === 'user' ? 'ユーザー' : 'アシスタント'
+          }: ${content}\n`
       })
     }
 
-    // AI判断用のメッセージを構築（Gemini Vision / 画像付きモデルでも使える形）
     const decisionMessage: Message = {
       role: 'user',
       content: [
@@ -241,23 +213,18 @@ const askAIForMultiModalDecision = async (
       timestamp: new Date().toISOString(),
     }
 
-    // AI判断用のシステムプロンプト
     const systemMessage: Message = {
       role: 'system',
       content: decisionPrompt,
     }
 
-    // AIに判断を求める
     const response = await getAIChatResponseStream([
       systemMessage,
       decisionMessage,
     ])
 
-    if (!response) {
-      return false // エラーの場合は画像を使用しない
-    }
+    if (!response) return false
 
-    // ReadableStreamからテキストを取得
     const reader = response.getReader()
     let result = ''
 
@@ -272,8 +239,6 @@ const askAIForMultiModalDecision = async (
     }
 
     const decision = result.trim().toLowerCase()
-
-    // 各言語の肯定的な回答をチェック
     const affirmativeResponses = [
       'はい',
       'yes',
@@ -286,37 +251,29 @@ const askAIForMultiModalDecision = async (
       'da',
       'sim',
     ]
-    return affirmativeResponses.some((response) => decision.includes(response))
+
+    return affirmativeResponses.some((v) => decision.includes(v))
   } catch (error) {
-    console.error('AI判断でエラーが発生しました:', error)
-    return false // エラーの場合は画像を使用しない
+    console.error('AI判断でエラー:', error)
+    return false
   }
 }
 
 // ============================================================
-// speakMessageHandler（今は「テキストを喋らせるだけ」）
+// speakMessageHandler
 // ============================================================
 
-/**
- * 受け取ったメッセージを処理し、感情タグつきで読み上げる
- * ※ チャットログは一切変更しない
- */
 export const speakMessageHandler = async (receivedMessage: string) => {
   speakWholeTextWithEmotions(receivedMessage)
 }
 
 // ============================================================
-// 内部AI用: ストリーム応答処理
+// 内部 AI（AItuberKit モード）
 // ============================================================
 
-/**
- * AIからの応答を処理する関数
- * @param messages 解答生成に使用するメッセージの配列
- */
 export const processAIResponse = async (messages: Message[]) => {
   const ss = settingsStore.getState()
 
-  // 外部連携モードのときは内部AIを完全停止
   if (ss.externalLinkageMode) {
     console.log('ExternalLinkage Mode → 内部AI停止')
     homeStore.setState({ chatProcessing: false })
@@ -325,8 +282,8 @@ export const processAIResponse = async (messages: Message[]) => {
 
   const sessionId = generateSessionId()
   homeStore.setState({ chatProcessing: true })
-  let stream
 
+  let stream
   const currentSlideMessagesRef = { current: [] as string[] }
 
   try {
@@ -337,7 +294,7 @@ export const processAIResponse = async (messages: Message[]) => {
     return
   }
 
-  if (stream == null) {
+  if (!stream) {
     homeStore.setState({ chatProcessing: false })
     return
   }
@@ -358,27 +315,25 @@ export const processAIResponse = async (messages: Message[]) => {
         let textToAdd = value
 
         if (!isCodeBlock) {
-          const delimiterIndexInValue = value.indexOf(CODE_DELIMITER)
-          if (delimiterIndexInValue !== -1) {
-            textToAdd = value.substring(0, delimiterIndexInValue)
+          const delimiterIdx = value.indexOf(CODE_DELIMITER)
+          if (delimiterIdx !== -1) {
+            textToAdd = value.substring(0, delimiterIdx)
           }
         }
 
-        // === チャットログ更新（内部AI） ===
         if (currentMessageId === null) {
           currentMessageId = generateMessageId()
           currentMessageContent = textToAdd
+
           if (currentMessageContent) {
             homeStore.getState().upsertMessage({
               id: currentMessageId,
               role: 'assistant',
-              // 表示用には感情タグを除去
               content: stripEmotionTagsForDisplay(currentMessageContent),
             })
           }
         } else if (!isCodeBlock) {
           currentMessageContent += textToAdd
-
           if (textToAdd) {
             homeStore.getState().upsertMessage({
               id: currentMessageId,
@@ -388,31 +343,31 @@ export const processAIResponse = async (messages: Message[]) => {
           }
         }
 
-        // === 読み上げ用バッファ ===
         receivedChunksForSpeech += value
       }
 
-      let processableTextForSpeech = receivedChunksForSpeech
+      let processable = receivedChunksForSpeech
       receivedChunksForSpeech = ''
 
-      while (processableTextForSpeech.length > 0) {
-        const originalProcessableText = processableTextForSpeech
+      // ======== 音声処理ループ ========
+      while (processable.length > 0) {
+        const prevText = processable
 
+        // --- コードブロック中 ---
         if (isCodeBlock) {
-          codeBlockContent += processableTextForSpeech
-          processableTextForSpeech = ''
+          codeBlockContent += processable
+          processable = ''
 
-          const delimiterIndex = codeBlockContent.lastIndexOf(CODE_DELIMITER)
-
+          const lastDelimiter = codeBlockContent.lastIndexOf(CODE_DELIMITER)
           if (
-            delimiterIndex !== -1 &&
-            delimiterIndex >=
-              codeBlockContent.length -
-                (originalProcessableText.length + CODE_DELIMITER.length - 1)
+            lastDelimiter !== -1 &&
+            lastDelimiter >=
+            codeBlockContent.length -
+            (prevText.length + CODE_DELIMITER.length - 1)
           ) {
-            const actualCode = codeBlockContent.substring(0, delimiterIndex)
-            const remainingAfterDelimiter = codeBlockContent.substring(
-              delimiterIndex + CODE_DELIMITER.length
+            const actualCode = codeBlockContent.substring(0, lastDelimiter)
+            const remainder = codeBlockContent.substring(
+              lastDelimiter + CODE_DELIMITER.length
             )
 
             if (actualCode.trim()) {
@@ -429,84 +384,35 @@ export const processAIResponse = async (messages: Message[]) => {
             currentMessageId = generateMessageId()
             currentMessageContent = ''
 
-            processableTextForSpeech = remainingAfterDelimiter.trimStart()
+            processable = remainder.trimStart()
             continue
           } else {
-            receivedChunksForSpeech = codeBlockContent + receivedChunksForSpeech
+            receivedChunksForSpeech =
+              codeBlockContent + receivedChunksForSpeech
             codeBlockContent = ''
             break
           }
-        } else {
-          const delimiterIndex =
-            processableTextForSpeech.indexOf(CODE_DELIMITER)
-          if (delimiterIndex !== -1) {
-            const beforeCode = processableTextForSpeech.substring(
-              0,
-              delimiterIndex
-            )
-            const afterDelimiterRaw = processableTextForSpeech.substring(
-              delimiterIndex + CODE_DELIMITER.length
-            )
+        }
 
-            let textToProcessBeforeCode = beforeCode.trimStart()
-            while (textToProcessBeforeCode.length > 0) {
-              const prevText = textToProcessBeforeCode
-              const {
-                emotionTag: extractedEmotion,
-                remainingText: textAfterEmotion,
-              } = extractEmotion(textToProcessBeforeCode)
-              if (extractedEmotion) currentEmotionTag = extractedEmotion
-              const { sentence, remainingText: textAfterSentence } =
-                extractSentence(textAfterEmotion)
+        // --- 通常テキスト ---
+        const delimiterIdx = processable.indexOf(CODE_DELIMITER)
+        if (delimiterIdx !== -1) {
+          const before = processable.substring(0, delimiterIdx)
+          const afterRaw = processable.substring(
+            delimiterIdx + CODE_DELIMITER.length
+          )
 
-              if (sentence) {
-                handleSpeakAndStateUpdate(
-                  sessionId,
-                  sentence,
-                  currentEmotionTag,
-                  currentSlideMessagesRef
-                )
-                textToProcessBeforeCode = textAfterSentence
-                if (!textAfterSentence) currentEmotionTag = ''
-              } else {
-                receivedChunksForSpeech =
-                  textToProcessBeforeCode + receivedChunksForSpeech
-                textToProcessBeforeCode = ''
-                break
-              }
+          // コード前のテキストを処理
+          let beforeText = before.trimStart()
+          while (beforeText.length > 0) {
+            const copy = beforeText
 
-              if (
-                textToProcessBeforeCode.length > 0 &&
-                textToProcessBeforeCode === prevText
-              ) {
-                console.warn('Speech processing loop stuck on:', prevText)
-                receivedChunksForSpeech =
-                  textToProcessBeforeCode + receivedChunksForSpeech
-                break
-              }
-            }
+            const { emotionTag, remainingText: afterEmotion } =
+              extractEmotion(beforeText)
+            if (emotionTag) currentEmotionTag = emotionTag
 
-            isCodeBlock = true
-            codeBlockContent = ''
-
-            const langMatch = afterDelimiterRaw.match(/^ *(\w+)? *\n/)
-            let remainingAfterDelimiter = afterDelimiterRaw
-            if (langMatch) {
-              remainingAfterDelimiter = afterDelimiterRaw.substring(
-                langMatch[0].length
-              )
-            }
-            processableTextForSpeech = remainingAfterDelimiter
-            continue
-          } else {
-            const {
-              emotionTag: extractedEmotion,
-              remainingText: textAfterEmotion,
-            } = extractEmotion(processableTextForSpeech)
-            if (extractedEmotion) currentEmotionTag = extractedEmotion
-
-            const { sentence, remainingText: textAfterSentence } =
-              extractSentence(textAfterEmotion)
+            const { sentence, remainingText: afterSentence } =
+              extractSentence(afterEmotion)
 
             if (sentence) {
               handleSpeakAndStateUpdate(
@@ -515,39 +421,68 @@ export const processAIResponse = async (messages: Message[]) => {
                 currentEmotionTag,
                 currentSlideMessagesRef
               )
-              processableTextForSpeech = textAfterSentence
-              if (!textAfterSentence) currentEmotionTag = ''
+
+              beforeText = afterSentence
+              if (!afterSentence) currentEmotionTag = ''
             } else {
               receivedChunksForSpeech =
-                processableTextForSpeech + receivedChunksForSpeech
-              processableTextForSpeech = ''
+                beforeText + receivedChunksForSpeech
+              beforeText = ''
               break
             }
+
+            if (beforeText === copy) break
           }
+
+          // --- コードブロックスイッチ ---
+          isCodeBlock = true
+          codeBlockContent = ''
+
+          const langMatch = afterRaw.match(/^ *(\w+)? *\n/)
+          let remainder = afterRaw
+          if (langMatch) {
+            remainder = afterRaw.substring(langMatch[0].length)
+          }
+
+          processable = remainder
+          continue
         }
 
-        if (
-          processableTextForSpeech.length > 0 &&
-          processableTextForSpeech === originalProcessableText
-        ) {
-          console.warn(
-            'Main speech processing loop stuck on:',
-            originalProcessableText
+        // --- 最終通常テキスト ---
+        const { emotionTag, remainingText: afterEmotion } =
+          extractEmotion(processable)
+        if (emotionTag) currentEmotionTag = emotionTag
+
+        const { sentence, remainingText: afterSentence } =
+          extractSentence(afterEmotion)
+
+        if (sentence) {
+          handleSpeakAndStateUpdate(
+            sessionId,
+            sentence,
+            currentEmotionTag,
+            currentSlideMessagesRef
           )
-          receivedChunksForSpeech =
-            processableTextForSpeech + receivedChunksForSpeech
-          processableTextForSpeech = ''
+          processable = afterSentence
+          if (!afterSentence) currentEmotionTag = ''
+        } else {
+          receivedChunksForSpeech = processable + receivedChunksForSpeech
+          processable = ''
           break
         }
+
+        if (prevText === processable) break
       }
 
       if (done) {
+        // ===== ストリーム終了処理 =====
         if (receivedChunksForSpeech.length > 0) {
           if (!isCodeBlock) {
             const finalSentence = receivedChunksForSpeech
-            const { emotionTag: extractedEmotion, remainingText: finalText } =
+            const { emotionTag, remainingText: finalText } =
               extractEmotion(finalSentence)
-            if (extractedEmotion) currentEmotionTag = extractedEmotion
+
+            if (emotionTag) currentEmotionTag = emotionTag
 
             handleSpeakAndStateUpdate(
               sessionId,
@@ -556,10 +491,6 @@ export const processAIResponse = async (messages: Message[]) => {
               currentSlideMessagesRef
             )
           } else {
-            console.warn(
-              'Stream ended while still in code block state. Saving remaining code.',
-              codeBlockContent
-            )
             codeBlockContent += receivedChunksForSpeech
             if (codeBlockContent.trim()) {
               homeStore.getState().upsertMessage({
@@ -572,17 +503,6 @@ export const processAIResponse = async (messages: Message[]) => {
           }
         }
 
-        if (isCodeBlock && codeBlockContent.trim()) {
-          console.warn(
-            'Stream ended unexpectedly while in code block state. Saving buffered code.'
-          )
-          homeStore.getState().upsertMessage({
-            role: 'code',
-            content: codeBlockContent,
-          })
-          codeBlockContent = ''
-          isCodeBlock = false
-        }
         break
       }
     }
@@ -592,9 +512,7 @@ export const processAIResponse = async (messages: Message[]) => {
     reader.releaseLock()
   }
 
-  homeStore.setState({
-    chatProcessing: false,
-  })
+  homeStore.setState({ chatProcessing: false })
 
   if (currentMessageContent.trim()) {
     homeStore.getState().upsertMessage({
@@ -604,52 +522,30 @@ export const processAIResponse = async (messages: Message[]) => {
     })
   }
 
-  // === AI返信フック（内部AI → 外部通知したい場合に使用） ===
+  // 内部 AI → 外部通知 hook
   try {
     await fetch('/api/external/broadcast', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: currentMessageContent.trim(),
-      }),
+      body: JSON.stringify({ text: currentMessageContent.trim() }),
     })
   } catch (e) {
     console.error('broadcast error', e)
   }
-
-  if (isCodeBlock && codeBlockContent.trim()) {
-    console.warn(
-      'Stream ended unexpectedly while in code block state. Saving buffered code.'
-    )
-    homeStore.getState().upsertMessage({
-      role: 'code',
-      content: codeBlockContent,
-    })
-  }
 }
-
 // ============================================================
 // 画面からの送信処理（YouTube コメントもここに流す想定）
 // ============================================================
 
-/**
- * アシスタントとの会話を行う
- * 画面のチャット欄から入力されたときに実行される処理
- * Youtubeでチャット取得した場合もこの関数を使用する
- */
 export const handleSendChatFn = () => async (text: string) => {
   const newMessage = text
   const timestamp = new Date().toISOString()
-
   if (newMessage === null) return
 
   const ss = settingsStore.getState()
   const sls = slideStore.getState()
 
-  // ▼ WebSocketStore の形が
-  //   - 新実装: { ws }
-  //   - 旧実装: { wsManager: { websocket } }
-  // のどちらでも動くように両対応にしている
+  // ===== WebSocketStore の形を共通化 =====
   const wsState = webSocketStore.getState() as any
   const ws: WebSocket | null =
     (wsState.ws as WebSocket | null) ??
@@ -658,17 +554,17 @@ export const handleSendChatFn = () => async (text: string) => {
   const modalImage = homeStore.getState().modalImage
 
   // ========================================================
-  // 外部AIモード：すべて WebSocket に流す（内部AIは使わない）
+  // 外部AIモード：すべて WebSocket に流す（内部AIは完全停止）
   // ========================================================
   if (ss.externalLinkageMode) {
     homeStore.setState({ chatProcessing: true })
 
-    // ★ ログ表示用：画像が付いている場合は text+image の複合コンテンツとして記録
+    // ---- UI ログ表示 ----
     const userMessageContent: Message['content'] = modalImage
       ? [
-          { type: 'text' as const, text: newMessage },
-          { type: 'image' as const, image: modalImage },
-        ]
+        { type: 'text' as const, text: newMessage },
+        { type: 'image' as const, image: modalImage },
+      ]
       : newMessage
 
     homeStore.getState().upsertMessage({
@@ -677,19 +573,20 @@ export const handleSendChatFn = () => async (text: string) => {
       timestamp,
     })
 
-    // ★ オーケストレータへ送るペイロード
-    //   画像は「ユーザーがチャット欄から送信した時だけ」付与する
     if (ws && ws.readyState === WebSocket.OPEN) {
+      // ★ A/B 識別（TAB 固有の appId）
+      const appId = process.env.NEXT_PUBLIC_APP_ID!
+
       const payload: any = {
         type: 'chat',
         role: 'user',
         text: newMessage,
         timestamp,
+        source: appId, // ← ★ ここが最重要（A か B を Orchestrator へ伝える）
       }
 
       if (modalImage) {
         payload.image = modalImage
-        // 送信後はモーダル画像をクリアしておく
         homeStore.setState({ modalImage: '' })
       }
 
@@ -700,15 +597,14 @@ export const handleSendChatFn = () => async (text: string) => {
         type: 'error',
         tag: 'not-connected-to-external-assistant',
       })
-      homeStore.setState({
-        chatProcessing: false,
-      })
+      homeStore.setState({ chatProcessing: false })
     }
+
     return
   }
 
   // ========================================================
-  // ここからは内部AI（従来の AITuberKit モード）
+  // ↓↓↓ ここから従来の「内部AIモード」（AItuberKit の純正 AI） ↓↓↓
   // ========================================================
 
   const sessionId = generateSessionId()
@@ -724,12 +620,11 @@ export const handleSendChatFn = () => async (text: string) => {
     return
   }
 
+  // ---- スライドモードなど内部の特殊処理 ----
   let systemPrompt = ss.systemPrompt || SYSTEM_PROMPT
 
   if (ss.slideMode) {
-    if (sls.isPlaying) {
-      return
-    }
+    if (sls.isPlaying) return
 
     try {
       const scripts = JSON.stringify(
@@ -744,18 +639,18 @@ export const handleSendChatFn = () => async (text: string) => {
         const response = await fetch(
           `/api/getSupplement?slideName=${sls.selectedSlideDocs}`
         )
-        if (!response.ok) {
-          throw new Error('Failed to fetch supplement')
-        }
+        if (!response.ok) throw new Error('Failed to fetch supplement')
+
         const data = await response.json()
         supplement = data.supplement
         systemPrompt = systemPrompt.replace('{{SUPPLEMENT}}', supplement)
       } catch (e) {
-        console.error('supplement.txtの読み込みに失敗しました:', e)
+        console.error('supplement.txtの読み込みに失敗:', e)
       }
 
       const answerString = await judgeSlide(newMessage, scripts, supplement)
       const answer = JSON.parse(answerString)
+
       if (answer.judge === 'true' && answer.page !== '') {
         goToSlide(Number(answer.page))
         systemPrompt += `\n\nEspecial Page Number is ${answer.page}.`
@@ -767,7 +662,9 @@ export const handleSendChatFn = () => async (text: string) => {
 
   homeStore.setState({ chatProcessing: true })
 
-  // マルチモーダル対応チェック
+  // ========================================================
+  // マルチモーダル判断（内部AIモード）
+  // ========================================================
   if (
     modalImage &&
     !isMultiModalAvailable(
@@ -790,7 +687,6 @@ export const handleSendChatFn = () => async (text: string) => {
     return
   }
 
-  // マルチモーダルモードに基づいてメッセージコンテンツを構築
   let userMessageContent: Message['content'] = newMessage
   let shouldUseImage = false
 
@@ -803,7 +699,6 @@ export const handleSendChatFn = () => async (text: string) => {
         shouldUseImage = false
         break
       case 'ai-decide':
-        // AI判断モードの場合は、AIに判断を求める
         shouldUseImage = await askAIForMultiModalDecision(
           newMessage,
           modalImage,
@@ -820,23 +715,22 @@ export const handleSendChatFn = () => async (text: string) => {
     }
   }
 
+  // === 内部AIログ更新 ===
   homeStore.getState().upsertMessage({
     role: 'user',
     content: userMessageContent,
     timestamp,
   })
 
-  if (modalImage) {
-    homeStore.setState({ modalImage: '' })
-  }
+  if (modalImage) homeStore.setState({ modalImage: '' })
 
+  // ========================================================
+  // 内部AIへメッセージ送信
+  // ========================================================
   const currentChatLog = homeStore.getState().chatLog
 
   const messages: Message[] = [
-    {
-      role: 'system',
-      content: systemPrompt,
-    },
+    { role: 'system', content: systemPrompt },
     ...messageSelectors.getProcessedMessages(
       currentChatLog,
       ss.includeTimestampInUserMessage
@@ -850,7 +744,6 @@ export const handleSendChatFn = () => async (text: string) => {
     homeStore.setState({ chatProcessing: false })
   }
 }
-
 // ============================================================
 // WebSocket からのテキスト受信（外部AI用のメイン入口）
 // ============================================================
@@ -858,127 +751,201 @@ export const handleSendChatFn = () => async (text: string) => {
 /**
  * WebSocketからのテキストを受信したときの処理
  * 外部AIからの JSON:
- * { type: "start" | "message" | "end", role: "assistant", text: string, emotion: EmotionType }
+ * {
+ *   type: "start" | "message" | "end",
+ *   role: "assistant",
+ *   text: string,
+ *   emotion: EmotionType,
+ *   source: "iris" | "fiona" | など（任意）
+ * }
  */
 export const handleReceiveTextFromWsFn =
   () =>
-  async (
-    text: string,
-    role?: string,
-    emotion: EmotionType = 'neutral',
-    type?: string
-  ) => {
-    if (text === null || role === undefined) return
+    async (
+      text: string,
+      role?: string,
+      emotion: EmotionType = 'neutral',
+      type?: string,
+      turnId?: number,
+      target?: string
+    ) => {
 
-    const ss = settingsStore.getState()
+      if (text === null || role === undefined) return
 
-    // 外部連携モード以外では無視
-    if (!ss.externalLinkageMode) {
-      console.log('ExternalLinkage Mode: false (ignore WS message)')
-      return
-    }
+      const ss = settingsStore.getState()
 
-    homeStore.setState({ chatProcessing: true })
+      // 外部連携モード以外では無視
+      if (!ss.externalLinkageMode) {
+        console.log('ExternalLinkage Mode: false (ignore WS message)')
+        return
+      }
 
-    // 現状、外部AI→AITuberKit は assistant ロール想定
-    if (role === 'assistant') {
-      if (type === 'start') {
-        console.log('WS: start')
-        // 新しいレスポンス用にプレースホルダーメッセージを作成
-        externalAssistantMessageId = generateMessageId()
-        homeStore.getState().upsertMessage({
-          id: externalAssistantMessageId,
-          role: 'assistant',
-          content: '',
-        })
-      } else if (type === 'message') {
-        console.log('WS: message')
-        if (!externalAssistantMessageId) {
-          // 念のため start が来ていなくても壊れないようにする
+      homeStore.setState({ chatProcessing: true })
+
+      // ========================================================
+      // 外部AI → AItuberKit
+      // ========================================================
+      if (role === 'assistant') {
+        // -------------------------------
+        // type=start（新規レスポンス開始）
+        // -------------------------------
+        if (type === 'start') {
+          SpeakQueue.getInstance().setTurnId(turnId ?? null);
+          console.log('WS: start')
+
+          // 新しいレスポンス用 ID を発行
           externalAssistantMessageId = generateMessageId()
+
+          // チャットログに空のメッセージを作成
           homeStore.getState().upsertMessage({
             id: externalAssistantMessageId,
             role: 'assistant',
             content: '',
           })
+          return
         }
 
-        // 1. 読み上げ（感情タグ付きのまま処理）
-        if (text && text.trim().length > 0) {
-          // emotion 引数は将来の拡張用だが、
-          // 現状はテキスト内の [happy] などを優先して処理する
-          speakWholeTextWithEmotions(text)
-        }
+        // -------------------------------
+        // type=message（区間メッセージ）
+        // -------------------------------
+        if (type === "message") {
+          console.log("WS: message");
 
-        // 2. チャットログ表示用テキスト（感情タグは削除）
-        const displayText = stripEmotionTagsForDisplay(text || '')
-
-        const hs = homeStore.getState()
-        const currentLog = hs.chatLog
-        const idx = currentLog.findIndex(
-          (m) => m.id === externalAssistantMessageId
-        )
-
-        if (idx !== -1) {
-          const target = currentLog[idx]
-          const prevContent =
-            typeof target.content === 'string' ? target.content : ''
-          const updatedContent = (prevContent + displayText).trim()
-
-          const newLog = [...currentLog]
-          newLog[idx] = {
-            ...target,
-            content: updatedContent,
+          // start が来ていない場合の保険処理
+          if (!externalAssistantMessageId) {
+            externalAssistantMessageId = generateMessageId();
+            homeStore.getState().upsertMessage({
+              id: externalAssistantMessageId,
+              role: "assistant",
+              content: "",
+            });
           }
 
-          homeStore.setState({ chatLog: newLog })
-        } else {
-          // 念のため見つからない場合は新規追加
-          homeStore.getState().upsertMessage({
-            id: externalAssistantMessageId,
-            role: 'assistant',
-            content: displayText,
-          })
+          // --------------------------------------
+          //  ★ ここで A/B のタブを仕分ける
+          // --------------------------------------
+          const appId = process.env.NEXT_PUBLIC_APP_ID!
+          const targetTab = target // ← 引数で受け取った target を使う
+
+          // 自分向けではない → ログだけ更新、発話しない
+          if (targetTab && appId && targetTab !== appId) {
+            const displayText = stripEmotionTagsForDisplay(text || "");
+            const hs = homeStore.getState();
+            const log = [...hs.chatLog];
+
+            const idx = log.findIndex((m) => m.id === externalAssistantMessageId);
+            if (idx !== -1) {
+              const prev = typeof log[idx].content === "string"
+                ? (log[idx].content as string)
+                : "";
+              log[idx] = {
+                ...log[idx],
+                content: (prev + displayText).trim(),
+              };
+              homeStore.setState({ chatLog: log });
+            } else {
+              homeStore.getState().upsertMessage({
+                id: externalAssistantMessageId,
+                role: "assistant",
+                content: displayText,
+              });
+            }
+
+            return; // ← 他タブ向けなので発話しない
+          }
+
+          // --------------------------------------
+          // ★ 自分向けのメッセージだけ発話する
+          // --------------------------------------
+          if (text && text.trim().length > 0) {
+            speakWholeTextWithEmotions(text);
+          }
+
+          // === チャットログ更新（自分向け）
+          const displayText = stripEmotionTagsForDisplay(text || "");
+          const hs = homeStore.getState();
+          const log = [...hs.chatLog];
+          const idx = log.findIndex((m) => m.id === externalAssistantMessageId);
+
+          if (idx !== -1) {
+            const prev = typeof log[idx].content === "string"
+              ? (log[idx].content as string)
+              : "";
+            log[idx] = {
+              ...log[idx],
+              content: (prev + displayText).trim(),
+            };
+            homeStore.setState({ chatLog: log });
+          } else {
+            homeStore.getState().upsertMessage({
+              id: externalAssistantMessageId,
+              role: "assistant",
+              content: displayText,
+            });
+          }
+
+          return;
         }
-      } else if (type === 'end') {
-        console.log('WS: end')
-        externalAssistantMessageId = null
-        homeStore.setState({ chatProcessing: false })
-      } else {
-        // type 未指定（単発メッセージなど）の場合も一応対応
+
+        // -------------------------------
+        // type=end（会話ブロック終了）
+        // -------------------------------
+        if (type === 'end') {
+          console.log('WS: end')
+
+          externalAssistantMessageId = null
+          homeStore.setState({ chatProcessing: false })
+          return
+        }
+
+        // -------------------------------
+        // type が無い（単発メッセージ）
+        // -------------------------------
         console.log('WS: single message (no type)')
+
         const displayText = stripEmotionTagsForDisplay(text || '')
         const messageId = generateMessageId()
+
         homeStore.getState().upsertMessage({
           id: messageId,
           role: 'assistant',
           content: displayText,
         })
+
         speakWholeTextWithEmotions(text || '')
         homeStore.setState({ chatProcessing: false })
+        return
       }
-    } else if (role === 'user') {
-      // 将来：外部AI側から "user ログ" を送りたい場合のために用意
-      homeStore.getState().upsertMessage({
-        role: 'user',
-        content: text,
-        timestamp: new Date().toISOString(),
-      })
-      homeStore.setState({ chatProcessing: false })
-    } else {
+
+      // ========================================================
+      // role=user（将来の拡張用途）
+      // ========================================================
+      if (role === 'user') {
+        homeStore.getState().upsertMessage({
+          role: 'user',
+          content: text,
+          timestamp: new Date().toISOString(),
+        })
+        homeStore.setState({ chatProcessing: false })
+        return
+      }
+
       homeStore.setState({ chatProcessing: false })
     }
-  }
-
 // ============================================================
-// Realtime API / Audio モード（ほぼ元のまま）
+// Realtime API / Audio モード（外部AIとの共存に最適化）
 // ============================================================
 
 /**
- * RealtimeAPIからのテキストまたは音声データを受信したときの処理
+ * RealtimeAPI からのテキストまたは音声データを受信したときの処理
+ * - response.audio → バイナリ音声
+ * - response.content_part.done → テキスト完了
+ *
+ * ※ 外部AI（orchestrator）と同時使用できるように
+ *    完全に独立したコードにしてある
  */
 export const handleReceiveTextFromRtFn = () => {
-  // 連続する response.audio イベントで共通の sessionId を使用するための変数
+  // 音声連続イベント用のセッションID
   let currentSessionId: string | null = null
 
   return async (
@@ -987,55 +954,72 @@ export const handleReceiveTextFromRtFn = () => {
     type?: string,
     buffer?: ArrayBuffer
   ) => {
-    // type が `response.audio` かつ currentSessionId が未設定の場合に新しいセッションIDを発番
-    if (currentSessionId === null) {
-      currentSessionId = generateSessionId()
-    }
-
-    const sessionId = currentSessionId
-
     const ss = settingsStore.getState()
 
-    if (ss.realtimeAPIMode) {
-      console.log('realtime api mode: true')
-    } else if (ss.audioMode) {
-      console.log('audio mode: true')
-    } else {
-      console.log('realtime api mode: false')
+    // RealtimeAPI / Audio モード “以外” なら無視
+    if (!ss.realtimeAPIMode && !ss.audioMode) {
+      console.log('realtime/audio mode disabled → ignore RT message')
       return
     }
 
+    // == セッションID（連続イベントを 1 会話として扱う） ==
+    if (currentSessionId === null) {
+      currentSessionId = generateSessionId()
+    }
+    const sessionId = currentSessionId
+
     homeStore.setState({ chatProcessing: true })
 
-    if (role === 'assistant') {
-      if (type?.includes('response.audio') && buffer !== undefined) {
-        console.log('response.audio:')
-        try {
-          speakCharacter(
-            sessionId,
-            {
-              emotion: 'neutral',
-              message: '',
-              buffer,
-            },
-            () => {},
-            () => {}
-          )
-        } catch (e) {
-          console.error('Error in speakCharacter:', e)
-        }
-      } else if (type === 'response.content_part.done' && text !== undefined) {
+    // ========================================================
+    // ① アシスタントからの音声（response.audio）
+    // ========================================================
+    if (role === 'assistant' && type?.includes('response.audio') && buffer) {
+      console.log('RT: response.audio')
+
+      try {
+        speakCharacter(
+          sessionId,
+          {
+            emotion: 'neutral',
+            message: '',
+            buffer,        // 直接音声バッファを渡す
+          },
+          () => { },       // onStart
+          () => { }        // onComplete
+        )
+      } catch (e) {
+        console.error('Error in speakCharacter (audio-mode):', e)
+      }
+
+      homeStore.setState({ chatProcessing: false })
+      return
+    }
+
+    // ========================================================
+    // ② アシスタントのテキスト出力（response.content_part.done）
+    // ========================================================
+    if (role === 'assistant' && type === 'response.content_part.done') {
+      console.log('RT: response.content_part.done')
+
+      if (text && text.trim().length > 0) {
+        // チャットログへの追加（リアルタイムモードは UI 表示のみ）
         homeStore.getState().upsertMessage({
-          role: role,
+          role: 'assistant',
           content: text,
         })
       }
-    }
-    homeStore.setState({ chatProcessing: false })
 
-    // レスポンスが完了したらセッションIDをリセット
-    if (type === 'response.content_part.done') {
+      homeStore.setState({ chatProcessing: false })
+
+      // 完了したのでセッションIDリセット
       currentSessionId = null
+      return
     }
+
+    // ========================================================
+    // ③ その他（未想定のイベントは安全に破棄）
+    // ========================================================
+    console.log('RT: unknown event', { role, type })
+    homeStore.setState({ chatProcessing: false })
   }
 }
