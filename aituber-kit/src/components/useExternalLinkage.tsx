@@ -97,6 +97,20 @@ const useExternalLinkage = ({ handleReceiveTextFromWs }: Params) => {
         type === 'message' ||
         type === 'end'
 
+      // meta から turnId / target を取り出す（Python側の仕様に合わせる）
+      const meta = (json as any).meta || {};
+      const turnId = json.turnId ?? meta.turnId;
+      const target = json.target ?? meta.character; // Python側は meta.character に入れている場合もある
+
+      // target がトップレベルにない場合は meta から補完
+      if (!json.target && target) {
+        json.target = target;
+      }
+      // turnId も同様
+      if (json.turnId === undefined && turnId !== undefined) {
+        json.turnId = turnId;
+      }
+
       if (!isLogEvent) {
         if (json.target && appId && json.target !== appId) {
           return  // ← 他の子の音声は無視！

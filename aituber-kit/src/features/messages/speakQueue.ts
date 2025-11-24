@@ -15,8 +15,7 @@ export function setExternalWs(ws: WebSocket) {
 // 発話完了したら Python へ通知
 export function notifySpeechEnd(turnId: number | null = null) {
   if (externalWs && externalWs.readyState === WebSocket.OPEN) {
-    const winEnv = (window as any).__env ?? {};
-    const appId = winEnv.NEXT_PUBLIC_APP_ID || null;
+    const appId = process.env.NEXT_PUBLIC_APP_ID || null;
 
     externalWs.send(
       JSON.stringify({

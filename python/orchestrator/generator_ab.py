@@ -5,10 +5,11 @@ import google.generativeai as genai
 
 load_dotenv()
 
-MODEL          = os.getenv("MODEL")
+MODEL          = os.getenv("MODEL", "gemini-2.0-flash-exp")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-PROMPT_FILE_AB = os.getenv("PROMPT_FILE_AB")
+# プロンプトファイルのデフォルトパスを修正
+PROMPT_FILE_AB = os.getenv("PROMPT_FILE_AB", "orchestrator/prompts/aibs_dual.txt")
 
 TAG_A = os.getenv("TAG_A", "A")
 TAG_B = os.getenv("TAG_B", "B")
@@ -17,9 +18,20 @@ LIMIT_AB = int(os.getenv("LIMIT_AB", 500))
 genai.configure(api_key=GOOGLE_API_KEY)
 
 
+import datetime
+
 class GeneratorAB:
     def __init__(self):
-        self.model = genai.GenerativeModel(MODEL)
+        # サーチグラウンディング有効化 (google-generativeai 0.8.5 互換)
+        # genai.Tool が存在しないため、辞書形式で指定
+        # disable_attribution はバージョンによって存在しない可能性があるため削除
+        self.tools = [
+            {'google_search_retrieval': {}}
+        ]
+        self.model = genai.GenerativeModel(
+            MODEL,
+            tools=self.tools
+        )
         self.tagA = TAG_A
         self.tagB = TAG_B
 
@@ -46,15 +58,22 @@ class GeneratorAB:
             while len("\n".join(self.history)) > LIMIT_AB:
                 self.history.pop(0)
 
+        # 現在日時を取得
+        now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
         # Gemini に渡す「完全なプロンプト」
+        # source に応じて開始キャラを明示
+        start_hint = f"※{speaker}から掛け合いを開始してください。"
+        
         prompt = (
-            self.dual_prompt
+            f"Current Time: {now_str}\n\n"
+            + self.dual_prompt
             + "\n\n"
             + "【会話履歴】\n"
             + "\n".join(self.history)
             + "\n\n"
-            + "【制約】上記履歴の続きとして、A/B の掛け合いを XML のみで生成してください。"
+            + f"【制約】上記履歴の続きとして、A/B の掛け合いを XML のみで生成してください。{start_hint}"
         )
 
-        # ストリームを返す
-        return self.model.generate_content(prompt, stream=True)
+        # ストリームを返す (非同期)
+        return self.model.generate_content_async(prompt, stream=True)

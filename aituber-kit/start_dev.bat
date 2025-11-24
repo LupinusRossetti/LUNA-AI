@@ -19,9 +19,8 @@ set WINDOWS_USER=
 for /f "tokens=2 delims==" %%U in ('findstr /r "^WINDOWS_USER=" .env.A') do set WINDOWS_USER=%%U
 
 if "%WINDOWS_USER%"=="" (
-    echo ERROR: .env.AにWINDOWS_USERがありません
-    pause
-    exit /b
+    echo WARNING: WINDOWS_USER not found in .env.A. Using environment variable USERNAME: %USERNAME%
+    set WINDOWS_USER=%USERNAME%
 )
 
 echo Using Windows User: %WINDOWS_USER%
@@ -103,12 +102,40 @@ if %errorlevel%==1 goto W3001
 
 
 REM ============================================
-REM 9) Chrome 2タブ
+REM 9) 他のウィンドウを最小化（Chrome起動前）
 REM ============================================
-start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" "http://localhost:3000?app=A"
-start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" "http://localhost:3001?app=B"
+echo Minimizing other windows...
+powershell -Command "$shell = New-Object -ComObject Shell.Application; $shell.MinimizeAll()"
+timeout /t 1 >nul
+
+REM ============================================
+REM 10) Chrome 2 Tabs (Separate windows, maximized, dual monitor support)
+REM ============================================
+echo Launching Chrome windows...
+
+REM First window (3000, Iris) - Start maximized (Primary monitor)
+start "Iris_3000" "C:\Program Files\Google\Chrome\Application\chrome.exe" --new-window --start-maximized "http://localhost:3000?app=A"
+
+REM Wait 3 seconds
+timeout /t 3 >nul
+
+REM Second window (3001, Fiona) - Start maximized
+REM For dual monitor setup, adjust window-position based on monitor width
+REM Example: For 1920x1080 monitor, use --window-position=1920,0
+REM Using 3000 to ensure it opens on the secondary monitor
+start "Fiona_3001" "C:\Program Files\Google\Chrome\Application\chrome.exe" --new-window --start-maximized --window-position=3000,0 "http://localhost:3001?app=B"
+
+REM Wait for Chrome windows to stabilize
+timeout /t 5 >nul
+
+echo Maximizing Chrome windows...
+powershell -ExecutionPolicy Bypass -File "%KIT_DIR%\maximize_window.ps1" "AITuberKit"
+
+echo Chrome windows launched.
+echo If windows are not on separate monitors, please adjust --window-position in start_dev.bat.
+echo.
 
 echo ============================================
-echo        A & B READY (AB MODE)
+echo        A ^& B READY (AB MODE)
 echo ============================================
 pause

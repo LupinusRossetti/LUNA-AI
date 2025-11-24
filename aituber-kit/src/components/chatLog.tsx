@@ -141,9 +141,18 @@ const Chat = ({
 
   // ---------- UI カラー ------------
   let ui
+  let displayCharacterName = characterName
+
   if (role === 'user') {
     ui = isYoutube ? uiColors.listener : uiColors.streamer
+  } else if (role === 'assistant-A') {
+    ui = uiColors.characterA
+    displayCharacterName = "アイリス・ロゼッティ" // TODO: 環境変数化
+  } else if (role === 'assistant-B') {
+    ui = uiColors.characterB
+    displayCharacterName = "フィオナ・ロゼッティ" // TODO: 環境変数化
   } else {
+    // fallback (legacy assistant)
     const APP_ID = process.env.NEXT_PUBLIC_APP_ID
     ui = APP_ID === 'A' ? uiColors.characterA : uiColors.characterB
   }
@@ -171,7 +180,7 @@ const Chat = ({
           color: ui.nameColor,
         }}
       >
-        {role === 'user' ? ui.name : characterName}
+        {role === 'user' ? ui.name : displayCharacterName}
       </div>
 
       {/* セリフ枠 */}

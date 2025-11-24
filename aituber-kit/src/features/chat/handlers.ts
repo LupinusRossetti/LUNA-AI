@@ -533,6 +533,175 @@ export const processAIResponse = async (messages: Message[]) => {
     console.error('broadcast error', e)
   }
 }
+
+// ============================================================
+// WebSocket からのテキスト受信（外部AI用のメイン入口）
+// ============================================================
+
+/**
+ * WebSocketからのテキストを受信したときの処理
+ * 外部AIからの JSON:
+ * {
+ *   type: "start" | "message" | "end",
+ *   role: "assistant",
+ *   text: string,
+ *   emotion: EmotionType,
+ *   source: "iris" | "fiona" | など（任意）
+ * }
+ */
+export const handleReceiveTextFromWsFn =
+  () =>
+    async (
+      text: string,
+      role?: string,
+      emotion: EmotionType = 'neutral',
+      type?: string,
+      turnId?: number,
+      target?: string,
+      source?: string
+    ) => {
+
+      if (text === null || role === undefined) return
+
+      const ss = settingsStore.getState()
+
+      // 外部連携モード以外では無視
+      if (!ss.externalLinkageMode) {
+        console.log('ExternalLinkage Mode: false (ignore WS message)')
+        return
+      }
+
+      homeStore.setState({ chatProcessing: true })
+
+      // ========================================================
+      // type=user_message（ユーザー入力の同期表示）
+      // ========================================================
+      // ========================================================
+      // type=user_message（ユーザー入力の同期表示）
+      // ========================================================
+      if (type === 'user_message') {
+        console.log(`[WS] ユーザーメッセージ受信: ${text?.substring(0, 30)}...`)
+
+        const appId = process.env.NEXT_PUBLIC_APP_ID
+        const messageSource = source
+
+        console.log(`[WS Debug] appId=${appId}, source=${messageSource}`)
+
+        // 自分のメッセージは handleSendChatFn で既に表示済みなのでスキップ
+        // 他のタブ（相手）からのメッセージのみ表示する
+        if (messageSource && messageSource !== appId) {
+          console.log(`[WS] 他のタブからのメッセージとしてログに追加`)
+          homeStore.getState().upsertMessage({
+            role: 'user',
+            content: text,
+            timestamp: new Date().toISOString(),
+          })
+        } else {
+          console.log(`[WS] 自分が送信したメッセージのためスキップ (source=${messageSource}, myAppId=${appId})`)
+        }
+
+        homeStore.setState({ chatProcessing: false })
+        return
+      }
+
+      // ========================================================
+      // 外部AI → AItuberKit
+      // ========================================================
+      if (role === 'assistant') {
+        // -------------------------------
+        // type=start（新規レスポンス開始）
+        // -------------------------------
+        if (type === 'start') {
+          SpeakQueue.getInstance().setTurnId(turnId ?? null);
+          console.log(`[WS] 開始: ターン=${turnId}, ターゲット=${target}`)
+
+          // 新しいレスポンス用 ID を発行
+          externalAssistantMessageId = generateMessageId()
+
+          // チャットログに空のメッセージを作成
+          homeStore.getState().upsertMessage({
+            id: externalAssistantMessageId,
+            role: 'assistant',
+            content: '',
+          })
+          return
+        }
+
+        // -------------------------------
+        // type=message（区間メッセージ）
+        // -------------------------------
+        if (type === "message") {
+          console.log(`[WS] メッセージ: ターン=${turnId}, ターゲット=${target}`);
+
+          // start が来ていない場合の保険処理
+          if (!externalAssistantMessageId) {
+            externalAssistantMessageId = generateMessageId();
+            homeStore.getState().upsertMessage({
+              id: externalAssistantMessageId,
+              role: "assistant",
+              content: "",
+            });
+          }
+
+          // --------------------------------------
+          //  ★ ここで A/B のタブを仕分ける
+          // --------------------------------------
+          const appId = process.env.NEXT_PUBLIC_APP_ID!
+          const targetTab = target // ← 引数で受け取った target を使う
+
+          // role を target に応じて設定
+          const messageRole = targetTab === "A" ? "assistant-A" : "assistant-B";
+
+          // === チャットログ更新（全タブ共通）
+          const displayText = stripEmotionTagsForDisplay(text || "");
+          const hs = homeStore.getState();
+          const log = [...hs.chatLog];
+          const idx = log.findIndex((m) => m.id === externalAssistantMessageId);
+
+          if (idx !== -1) {
+            // 既存メッセージ更新
+            const prev = typeof log[idx].content === "string" ? (log[idx].content as string) : "";
+            log[idx] = { ...log[idx], content: (prev + displayText).trim(), role: messageRole };
+            homeStore.setState({ chatLog: log });
+          } else {
+            // 新規メッセージ
+            homeStore.getState().upsertMessage({
+              id: externalAssistantMessageId,
+              role: messageRole,
+              content: displayText,
+            });
+          }
+
+          // --------------------------------------
+          // ★ 自分向けのメッセージだけ発話する
+          // --------------------------------------
+          if (targetTab && appId && targetTab === appId) {
+            if (text && text.trim().length > 0) {
+              console.log(`[発話] ターゲット=${targetTab}, ターンID=${turnId || '不明'}に対して発話開始`);
+              speakWholeTextWithEmotions(text);
+            }
+          } else {
+            console.log(`[スキップ] ターゲット=${targetTab} (自分は${appId})のためスキップ`);
+          }
+
+          return;
+        }
+
+        // -------------------------------
+        // type=end（会話ブロック終了）
+        // -------------------------------
+        if (type === 'end') {
+          console.log(`[WS] 終了: ターンID=${turnId || '不明'}, ターゲット=${target}`)
+
+          externalAssistantMessageId = null
+          homeStore.setState({ chatProcessing: false })
+          return
+        }
+      }
+
+      homeStore.setState({ chatProcessing: false })
+    }
+
 // ============================================================
 // 画面からの送信処理（YouTube コメントもここに流す想定）
 // ============================================================
@@ -744,8 +913,9 @@ export const handleSendChatFn = () => async (text: string) => {
     homeStore.setState({ chatProcessing: false })
   }
 }
+
 // ============================================================
-// WebSocket からのテキスト受信（外部AI用のメイン入口）
+// WebSocket からのテキスト受信（リアルタイムAPI用）
 // ============================================================
 
 /**
@@ -754,190 +924,6 @@ export const handleSendChatFn = () => async (text: string) => {
  * {
  *   type: "start" | "message" | "end",
  *   role: "assistant",
- *   text: string,
- *   emotion: EmotionType,
- *   source: "iris" | "fiona" | など（任意）
- * }
- */
-export const handleReceiveTextFromWsFn =
-  () =>
-    async (
-      text: string,
-      role?: string,
-      emotion: EmotionType = 'neutral',
-      type?: string,
-      turnId?: number,
-      target?: string
-    ) => {
-
-      if (text === null || role === undefined) return
-
-      const ss = settingsStore.getState()
-
-      // 外部連携モード以外では無視
-      if (!ss.externalLinkageMode) {
-        console.log('ExternalLinkage Mode: false (ignore WS message)')
-        return
-      }
-
-      homeStore.setState({ chatProcessing: true })
-
-      // ========================================================
-      // 外部AI → AItuberKit
-      // ========================================================
-      if (role === 'assistant') {
-        // -------------------------------
-        // type=start（新規レスポンス開始）
-        // -------------------------------
-        if (type === 'start') {
-          SpeakQueue.getInstance().setTurnId(turnId ?? null);
-          console.log('WS: start')
-
-          // 新しいレスポンス用 ID を発行
-          externalAssistantMessageId = generateMessageId()
-
-          // チャットログに空のメッセージを作成
-          homeStore.getState().upsertMessage({
-            id: externalAssistantMessageId,
-            role: 'assistant',
-            content: '',
-          })
-          return
-        }
-
-        // -------------------------------
-        // type=message（区間メッセージ）
-        // -------------------------------
-        if (type === "message") {
-          console.log("WS: message");
-
-          // start が来ていない場合の保険処理
-          if (!externalAssistantMessageId) {
-            externalAssistantMessageId = generateMessageId();
-            homeStore.getState().upsertMessage({
-              id: externalAssistantMessageId,
-              role: "assistant",
-              content: "",
-            });
-          }
-
-          // --------------------------------------
-          //  ★ ここで A/B のタブを仕分ける
-          // --------------------------------------
-          const appId = process.env.NEXT_PUBLIC_APP_ID!
-          const targetTab = target // ← 引数で受け取った target を使う
-
-          // 自分向けではない → ログだけ更新、発話しない
-          if (targetTab && appId && targetTab !== appId) {
-            const displayText = stripEmotionTagsForDisplay(text || "");
-            const hs = homeStore.getState();
-            const log = [...hs.chatLog];
-
-            const idx = log.findIndex((m) => m.id === externalAssistantMessageId);
-            if (idx !== -1) {
-              const prev = typeof log[idx].content === "string"
-                ? (log[idx].content as string)
-                : "";
-              log[idx] = {
-                ...log[idx],
-                content: (prev + displayText).trim(),
-              };
-              homeStore.setState({ chatLog: log });
-            } else {
-              homeStore.getState().upsertMessage({
-                id: externalAssistantMessageId,
-                role: "assistant",
-                content: displayText,
-              });
-            }
-
-            return; // ← 他タブ向けなので発話しない
-          }
-
-          // --------------------------------------
-          // ★ 自分向けのメッセージだけ発話する
-          // --------------------------------------
-          if (text && text.trim().length > 0) {
-            speakWholeTextWithEmotions(text);
-          }
-
-          // === チャットログ更新（自分向け）
-          const displayText = stripEmotionTagsForDisplay(text || "");
-          const hs = homeStore.getState();
-          const log = [...hs.chatLog];
-          const idx = log.findIndex((m) => m.id === externalAssistantMessageId);
-
-          if (idx !== -1) {
-            const prev = typeof log[idx].content === "string"
-              ? (log[idx].content as string)
-              : "";
-            log[idx] = {
-              ...log[idx],
-              content: (prev + displayText).trim(),
-            };
-            homeStore.setState({ chatLog: log });
-          } else {
-            homeStore.getState().upsertMessage({
-              id: externalAssistantMessageId,
-              role: "assistant",
-              content: displayText,
-            });
-          }
-
-          return;
-        }
-
-        // -------------------------------
-        // type=end（会話ブロック終了）
-        // -------------------------------
-        if (type === 'end') {
-          console.log('WS: end')
-
-          externalAssistantMessageId = null
-          homeStore.setState({ chatProcessing: false })
-          return
-        }
-
-        // -------------------------------
-        // type が無い（単発メッセージ）
-        // -------------------------------
-        console.log('WS: single message (no type)')
-
-        const displayText = stripEmotionTagsForDisplay(text || '')
-        const messageId = generateMessageId()
-
-        homeStore.getState().upsertMessage({
-          id: messageId,
-          role: 'assistant',
-          content: displayText,
-        })
-
-        speakWholeTextWithEmotions(text || '')
-        homeStore.setState({ chatProcessing: false })
-        return
-      }
-
-      // ========================================================
-      // role=user（将来の拡張用途）
-      // ========================================================
-      if (role === 'user') {
-        homeStore.getState().upsertMessage({
-          role: 'user',
-          content: text,
-          timestamp: new Date().toISOString(),
-        })
-        homeStore.setState({ chatProcessing: false })
-        return
-      }
-
-      homeStore.setState({ chatProcessing: false })
-    }
-// ============================================================
-// Realtime API / Audio モード（外部AIとの共存に最適化）
-// ============================================================
-
-/**
- * RealtimeAPI からのテキストまたは音声データを受信したときの処理
  * - response.audio → バイナリ音声
  * - response.content_part.done → テキスト完了
  *
