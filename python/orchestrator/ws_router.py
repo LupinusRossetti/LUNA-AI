@@ -137,10 +137,22 @@ async def broadcast_turn(wsA, wsB, text, character: str):
     })
 
     # wait until the exact same turnID returns from the TARGET
+    # 相方のメッセージの場合は、speech_endが送られない可能性があるため、
+    # タイムアウトを設定して待機する
     target_ws = wsA if character == "A" else wsB
     print(f"[Router] ターン {turn_id} の speech_end を {character} から待機中...")
-    await wait_speech_end(target_ws, turn_id, character)
-    print(f"[Router] <<< ターン {turn_id} 完了")
+    
+    try:
+        # タイムアウト付きでspeech_endを待機（最大5秒）
+        await asyncio.wait_for(
+            wait_speech_end(target_ws, turn_id, character),
+            timeout=5.0
+        )
+        print(f"[Router] <<< ターン {turn_id} 完了 (speech_end受信)")
+    except asyncio.TimeoutError:
+        # タイムアウトした場合（相方のメッセージなど、speech_endが送られない場合）
+        print(f"[Router] <<< ターン {turn_id} 完了 (タイムアウト - 相方のメッセージの可能性)")
+        # 次のターンに進む
 
 # ============================================================
 # メインループ
@@ -184,17 +196,32 @@ async def main_loop():
                     "source": source
                 }
                 user_msg_str = json.dumps(user_msg, ensure_ascii=False)
+                # simple_ws_server 側で、
+                #   A ルーム → AB / B へもブロードキャストされるため
+                # ここでは wsA のみに送信すれば十分。
+                # 両方に送ると AB ルーム経由で同じ user_message が二重に届くため、
+                # 相方タブのユーザーログが二重表示されてしまう。
                 await wsA.send(user_msg_str)
-                print(f"[Router] ユーザーメッセージをブロードキャスト: {text[:30]}...")
+                print(f"[Router] ユーザーメッセージをブロードキャスト(A経由): {text[:30]}...")
 
                 # ===== Gemini に投げる =====
-                stream = await gen.run(text, source)
-                full = await read_stream(stream)
+                # GeneratorAB.run 内でサーチグラウンディングを試行し、
+                # 失敗した場合はフォールバックして通常生成を行う。
+                try:
+                    # run は必ず「ストリーム（非同期イテレータ）」を返す想定
+                    stream = await gen.run(text, source)
+                    full = await read_stream(stream)
 
-                if not full:
+                    if not full:
+                        print("[Router] Empty response from Gemini, skipping...")
+                        continue
+
+                    print(f"[Router] Gemini応答:\n{full}")
+                except Exception as e:
+                    # ここまで到達するのは想定外の致命的エラーのみ
+                    print(f"[Router] CRITICAL ERROR: Failed to generate response: {e}")
+                    traceback.print_exc()
                     continue
-
-                print(f"[Router] Gemini応答:\n{full}")
 
                 # Markdownコードブロックの削除 (```xml ... ``` or ``` ... ```)
                 clean_text = re.sub(r"```(?:xml)?\s*(.*?)\s*```", r"\1", full, flags=re.DOTALL).strip()

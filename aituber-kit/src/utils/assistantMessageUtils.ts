@@ -15,7 +15,8 @@ export const getLatestAssistantMessage = (
   // 配列の末尾から逆順に検索してパフォーマンスを向上
   for (let i = chatLog.length - 1; i >= 0; i--) {
     const msg = chatLog[i]
-    if (msg.role === 'assistant') {
+    // AB モード対応: assistant, assistant-A, assistant-B をすべて認識
+    if (msg.role === 'assistant' || msg.role === 'assistant-A' || msg.role === 'assistant-B') {
       if (typeof msg.content === 'string') {
         return msg.content
       } else if (Array.isArray(msg.content)) {

@@ -17,7 +17,7 @@ import toastStore from '@/features/stores/toast'
 import { generateMessageId } from '@/utils/messageUtils'
 import { isMultiModalAvailable } from '@/features/constants/aiModels'
 import { SYSTEM_PROMPT } from '@/features/constants/systemPromptConstants'
-import { SpeakQueue } from '@/features/messages/speakQueue';
+import { SpeakQueue, notifySpeechEnd } from '@/features/messages/speakQueue';
 
 // ============================================================
 // 共通定数・ユーティリティ
@@ -612,7 +612,13 @@ export const handleReceiveTextFromWsFn =
         // type=start（新規レスポンス開始）
         // -------------------------------
         if (type === 'start') {
-          SpeakQueue.getInstance().setTurnId(turnId ?? null);
+          // ★ このタブが実際にしゃべるターゲットのときだけ、ターンIDを登録する
+          //   （相方タブまで setTurnId すると、両方から speech_end が飛んでしまう）
+          const appId = process.env.NEXT_PUBLIC_APP_ID
+          const targetTab = target
+          if (targetTab && appId && targetTab === appId && turnId) {
+            SpeakQueue.getInstance().setTurnId(turnId ?? null)
+          }
           console.log(`[WS] 開始: ターン=${turnId}, ターゲット=${target}`)
 
           // 新しいレスポンス用 ID を発行
@@ -682,6 +688,24 @@ export const handleReceiveTextFromWsFn =
             }
           } else {
             console.log(`[スキップ] ターゲット=${targetTab} (自分は${appId})のためスキップ`);
+
+            // --------------------------------------
+            // ★ 相方のメッセージは字幕のみ表示（音声なし）
+            // --------------------------------------
+            if (text && text.trim().length > 0) {
+              const displayText = text.replace(/\[([a-zA-Z]*?)\]/g, ''); // 感情タグ除去
+              homeStore.setState({
+                slideMessages: [displayText]
+              });
+
+              // 3秒後に自動で消す
+              setTimeout(() => {
+                const current = homeStore.getState().slideMessages;
+                if (current[0] === displayText) {
+                  homeStore.setState({ slideMessages: [] });
+                }
+              }, 3000);
+            }
           }
 
           return;
@@ -692,6 +716,10 @@ export const handleReceiveTextFromWsFn =
         // -------------------------------
         if (type === 'end') {
           console.log(`[WS] 終了: ターンID=${turnId || '不明'}, ターゲット=${target}`)
+
+          // speech_end は、自キャラの音声再生完了時に SpeakQueue（speakQueue.ts）が
+          // notifySpeechEnd を送信するため、ここでは送信しない。
+          // （相方タブからの二重送信を防ぐ）
 
           externalAssistantMessageId = null
           homeStore.setState({ chatProcessing: false })

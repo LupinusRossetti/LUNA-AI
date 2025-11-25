@@ -20,6 +20,7 @@ interface TmpMessage {
   target?: string
   turnId?: number
   log?: boolean
+  source?: string
 }
 
 interface Params {
@@ -29,7 +30,8 @@ interface Params {
     emotion?: EmotionType,
     type?: string,
     turnId?: number,
-    target?: string
+    target?: string,
+    source?: string
   ) => Promise<void>
 }
 
@@ -66,7 +68,8 @@ const useExternalLinkage = ({ handleReceiveTextFromWs }: Params) => {
         msg.emotion,
         msg.type,
         msg.turnId,
-        msg.target
+        msg.target,
+        msg.source
       )
     }
 
