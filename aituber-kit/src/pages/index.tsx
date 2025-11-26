@@ -32,6 +32,8 @@ const Home = () => {
         : `url(${buildUrl(backgroundImageUrl)})`
   const messageReceiverEnabled = settingsStore((s) => s.messageReceiverEnabled)
   const modelType = settingsStore((s) => s.modelType)
+  const selectedLive2DPathA = settingsStore((s) => s.selectedLive2DPathA)
+  const selectedLive2DPathB = settingsStore((s) => s.selectedLive2DPathB)
   // 掛け合いモード判定（暫定: 環境変数で判定）
   const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
   const { t } = useTranslation()
@@ -109,12 +111,12 @@ const Home = () => {
       ) : isDialogueMode ? (
         // 掛け合いモード: 2体表示
         <>
-          <Live2DViewer characterId="A" position="left" />
-          <Live2DViewer characterId="B" position="right" />
+          <Live2DViewer characterId="A" modelPath={selectedLive2DPathA} position="left" />
+          <Live2DViewer characterId="B" modelPath={selectedLive2DPathB} position="right" />
         </>
       ) : (
         // 単体モード: 1体表示
-        <Live2DViewer />
+        <Live2DViewer characterId="A" modelPath={selectedLive2DPathA} />
       )}
       <Form />
       <Menu />

@@ -212,6 +212,28 @@ interface Character {
     y: number
     z: number
   }
+  characterPositionA: {
+    x: number
+    y: number
+    z: number
+    scale: number
+  }
+  characterRotationA: {
+    x: number
+    y: number
+    z: number
+  }
+  characterPositionB: {
+    x: number
+    y: number
+    z: number
+    scale: number
+  }
+  characterRotationB: {
+    x: number
+    y: number
+    z: number
+  }
   lightingIntensity: number
 }
 
@@ -499,6 +521,28 @@ const getInitialValuesFromEnv = (): SettingsState => ({
     y: 0,
     z: 0,
   },
+  characterPositionA: {
+    x: 0,
+    y: 0,
+    z: 0,
+    scale: 1,
+  },
+  characterRotationA: {
+    x: 0,
+    y: 0,
+    z: 0,
+  },
+  characterPositionB: {
+    x: 0,
+    y: 0,
+    z: 0,
+    scale: 1,
+  },
+  characterRotationB: {
+    x: 0,
+    y: 0,
+    z: 0,
+  },
   lightingIntensity:
     parseFloat(process.env.NEXT_PUBLIC_LIGHTING_INTENSITY || '1.0') || 1.0,
 
@@ -731,6 +775,10 @@ const settingsStore = create<SettingsState>()(
       fixedCharacterPosition: state.fixedCharacterPosition,
       characterPosition: state.characterPosition,
       characterRotation: state.characterRotation,
+      characterPositionA: state.characterPositionA,
+      characterRotationA: state.characterRotationA,
+      characterPositionB: state.characterPositionB,
+      characterRotationB: state.characterRotationB,
       lightingIntensity: state.lightingIntensity,
       nijivoiceApiKey: state.nijivoiceApiKey,
       nijivoiceActorId: state.nijivoiceActorId,

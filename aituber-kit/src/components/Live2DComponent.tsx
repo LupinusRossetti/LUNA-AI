@@ -10,25 +10,43 @@ console.log('Live2DComponent module loaded')
 
 const setModelPosition = (
   app: Application,
-  model: InstanceType<typeof Live2DModel>
+  model: InstanceType<typeof Live2DModel>,
+  characterId?: 'A' | 'B'
 ) => {
   const settings = settingsStore.getState()
+  const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
+  
+  let position: { x: number; y: number; scale: number }
+  
+  if (isDialogueMode && characterId) {
+    // 掛け合いモード: A/B別々の位置を使用
+    const charPosition = characterId === 'A' ? settings.characterPositionA : settings.characterPositionB
+    position = charPosition
+  } else {
+    // 単体モード: レガシーのcharacterPositionを使用
+    position = settings.characterPosition
+  }
 
   // If position is fixed and saved, restore it
   if (
     settings.fixedCharacterPosition &&
-    (settings.characterPosition.x !== 0 ||
-      settings.characterPosition.y !== 0 ||
-      settings.characterPosition.scale !== 1)
+    (position.x !== 0 ||
+      position.y !== 0 ||
+      position.scale !== 1)
   ) {
-    model.scale.set(settings.characterPosition.scale)
-    model.x = settings.characterPosition.x
-    model.y = settings.characterPosition.y
+    model.scale.set(position.scale)
+    model.x = position.x
+    model.y = position.y
   } else {
     // Default positioning
     const scale = 0.3
     model.scale.set(scale)
-    model.x = app.renderer.width / 2
+    // 掛け合いモード: 左右に配置
+    if (isDialogueMode && characterId) {
+      model.x = characterId === 'A' ? app.renderer.width / 4 : app.renderer.width * 3 / 4
+    } else {
+      model.x = app.renderer.width / 2
+    }
     model.y = app.renderer.height / 2
   }
 }
@@ -68,16 +86,34 @@ const Live2DComponent = ({ characterId, modelPath }: Live2DComponentProps = {} a
     if (!model) return
 
     const settings = settingsStore.getState()
-    settingsStore.setState({
-      characterPosition: {
-        x: model.x,
-        y: model.y,
-        z: settings.characterPosition.z, // 既存のzを保持（VRM viewerで使用 → viewer.ts:216–221）
-        scale: model.scale.x,
-      },
-      characterRotation: settings.characterRotation, // 既存のrotationを保持（VRM viewerで使用 → viewer.ts:224–226）
-    })
-  }, [model])
+    const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
+    
+    if (isDialogueMode && characterId) {
+      // 掛け合いモード: A/B別々の位置を保存
+      const currentPosition = characterId === 'A' ? settings.characterPositionA : settings.characterPositionB
+      const currentRotation = characterId === 'A' ? settings.characterRotationA : settings.characterRotationB
+      settingsStore.setState({
+        [`characterPosition${characterId}`]: {
+          x: model.x,
+          y: model.y,
+          z: currentPosition.z,
+          scale: model.scale.x,
+        },
+        [`characterRotation${characterId}`]: currentRotation,
+      })
+    } else {
+      // 単体モード: レガシーのcharacterPositionを使用
+      settingsStore.setState({
+        characterPosition: {
+          x: model.x,
+          y: model.y,
+          z: settings.characterPosition.z, // 既存のzを保持（VRM viewerで使用 → viewer.ts:216–221）
+          scale: model.scale.x,
+        },
+        characterRotation: settings.characterRotation, // 既存のrotationを保持（VRM viewerで使用 → viewer.ts:224–226）
+      })
+    }
+  }, [model, characterId])
 
   // Position management functions that can be called from settings
   const fixPosition = useCallback(() => {
@@ -92,13 +128,25 @@ const Live2DComponent = ({ characterId, modelPath }: Live2DComponentProps = {} a
 
   const resetPosition = useCallback(() => {
     if (!model || !app) return
-    settingsStore.setState({
-      fixedCharacterPosition: false,
-      characterPosition: { x: 0, y: 0, z: 0, scale: 1 },
-      characterRotation: { x: 0, y: 0, z: 0 },
-    })
-    setModelPosition(app, model)
-  }, [model, app])
+    const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
+    
+    if (isDialogueMode && characterId) {
+      // 掛け合いモード: A/B別々の位置をリセット
+      settingsStore.setState({
+        fixedCharacterPosition: false,
+        [`characterPosition${characterId}`]: { x: 0, y: 0, z: 0, scale: 1 },
+        [`characterRotation${characterId}`]: { x: 0, y: 0, z: 0 },
+      })
+    } else {
+      // 単体モード: レガシーのcharacterPositionをリセット
+      settingsStore.setState({
+        fixedCharacterPosition: false,
+        characterPosition: { x: 0, y: 0, z: 0, scale: 1 },
+        characterRotation: { x: 0, y: 0, z: 0 },
+      })
+    }
+    setModelPosition(app, model, characterId)
+  }, [model, app, characterId])
 
   // Store position management functions in homeStore for access from settings
   useEffect(() => {
@@ -109,9 +157,19 @@ const Live2DComponent = ({ characterId, modelPath }: Live2DComponentProps = {} a
         unfixPosition,
         resetPosition,
       })
-      homeStore.setState({
-        live2dViewer: viewerWithPositionControls,
-      })
+      const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
+      
+      if (isDialogueMode && characterId) {
+        // 掛け合いモード: A/B別々のviewerを保存
+        homeStore.setState({
+          [`live2dViewer${characterId}`]: viewerWithPositionControls,
+        })
+      } else {
+        // 単体モード: レガシーのlive2dViewerを保存
+        homeStore.setState({
+          live2dViewer: viewerWithPositionControls,
+        })
+      }
     }
   }, [model, app, fixPosition, unfixPosition, resetPosition])
 
@@ -180,7 +238,7 @@ const Live2DComponent = ({ characterId, modelPath }: Live2DComponentProps = {} a
 
       currentApp.stage.addChild(newModel as unknown as DisplayObject)
       newModel.anchor.set(0.5, 0.5)
-      setModelPosition(currentApp, newModel)
+      setModelPosition(currentApp, newModel, characterId)
 
       modelRef.current = newModel
       setModel(newModel)
@@ -363,7 +421,7 @@ const Live2DComponent = ({ characterId, modelPath }: Live2DComponentProps = {} a
         canvasContainerRef.current.clientHeight
       )
 
-      setModelPosition(app, model)
+      setModelPosition(app, model, characterId)
     }, 250)
 
     window.addEventListener('resize', onResize)

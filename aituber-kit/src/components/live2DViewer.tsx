@@ -44,9 +44,14 @@ type Live2DViewerProps = {
 export default function Live2DViewer(props: Live2DViewerProps = {}) {
   const { 
     characterId, 
-    modelPath,
+    modelPath: modelPathProp,
     position = 'right'
   } = props
+  
+  // modelPathがpropsで指定されていない場合、settingsStoreから取得
+  const selectedLive2DPathA = settingsStore((s) => s.selectedLive2DPathA)
+  const selectedLive2DPathB = settingsStore((s) => s.selectedLive2DPathB)
+  const modelPath = modelPathProp || (characterId === 'A' ? selectedLive2DPathA : characterId === 'B' ? selectedLive2DPathB : selectedLive2DPathA)
   const [isMounted, setIsMounted] = useState(false)
   const [scriptLoadRetries, setScriptLoadRetries] = useState({
     cubismcore: 0,
