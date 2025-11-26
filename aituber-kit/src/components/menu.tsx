@@ -12,7 +12,7 @@ import Settings from './settings'
 import { Webcam } from './webcam'
 import Slides from './slides'
 import Capture from './capture'
-import { getLatestAssistantMessage } from '@/utils/assistantMessageUtils'
+import { getLatestAssistantMessageWithRole } from '@/utils/assistantMessageUtils'
 
 // モバイルデバイス検出用のカスタムフック
 const useIsMobile = () => {
@@ -103,8 +103,10 @@ export const Menu = () => {
       )
   }, [selectedSlideDocs])
 
-  // アシスタントメッセージ
-  const latestAssistantMessage = getLatestAssistantMessage(chatLog)
+  // アシスタントメッセージ（掛け合いモード対応）
+  const latestAssistantMessageData = getLatestAssistantMessageWithRole(chatLog)
+  const latestAssistantMessage = latestAssistantMessageData.content
+  const latestAssistantRole = latestAssistantMessageData.role
 
   const handleChangeVrmFile = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -313,7 +315,9 @@ export const Menu = () => {
       {chatLogMode === CHAT_LOG_MODE.ASSISTANT &&
         latestAssistantMessage &&
         (!slideMode || !slideVisible) &&
-        showAssistantText && <AssistantText message={latestAssistantMessage} />}
+        showAssistantText && (
+          <AssistantText message={latestAssistantMessage} role={latestAssistantRole} />
+        )}
       {showWebcam && navigator.mediaDevices && <Webcam />}
       {showCapture && <Capture />}
       {showPermissionModal && (

@@ -21,6 +21,8 @@ export const ChatLog = () => {
   const chatLogRef = useRef<HTMLDivElement>(null)
 
   const characterName = settingsStore((s) => s.characterName)
+  const characterAName = settingsStore((s) => s.characterAName)
+  const characterBName = settingsStore((s) => s.characterBName)
   const chatLogWidth = settingsStore((s) => s.chatLogWidth)
   const messages = messageSelectors.getTextAndImageMessages(
     homeStore((s) => s.chatLog)
@@ -87,6 +89,8 @@ export const ChatLog = () => {
                   role={msg.role}
                   message={msg.content}
                   characterName={characterName}
+                  characterAName={characterAName}
+                  characterBName={characterBName}
                   isYoutube={isYoutube}
                 />
               ) : (
@@ -95,6 +99,8 @@ export const ChatLog = () => {
                     role={msg.role}
                     message={msg.content ? msg.content[0].text : ''}
                     characterName={characterName}
+                    characterAName={characterAName}
+                    characterBName={characterBName}
                     isYoutube={isYoutube}
                   />
                   <ChatImage
@@ -128,11 +134,15 @@ const Chat = ({
   role,
   message,
   characterName,
+  characterAName,
+  characterBName,
   isYoutube,
 }: {
   role: string
   message: string
   characterName: string
+  characterAName: string
+  characterBName: string
   isYoutube: boolean
 }) => {
   // 感情タグ除去
@@ -147,10 +157,10 @@ const Chat = ({
     ui = isYoutube ? uiColors.listener : uiColors.streamer
   } else if (role === 'assistant-A') {
     ui = uiColors.characterA
-    displayCharacterName = uiColors.characterA.name || "アイリス・ロゼッティ"
+    displayCharacterName = characterAName
   } else if (role === 'assistant-B') {
     ui = uiColors.characterB
-    displayCharacterName = uiColors.characterB.name || "フィオナ・ロゼッティ"
+    displayCharacterName = characterBName
   } else {
     // fallback (legacy assistant)
     const APP_ID = process.env.NEXT_PUBLIC_APP_ID
