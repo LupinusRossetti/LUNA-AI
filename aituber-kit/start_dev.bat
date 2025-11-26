@@ -10,6 +10,8 @@ cd /d %~dp0
 
 echo Starting Next.js...
 echo.
+start "" "http://localhost:3000"
+timeout /t 3 /nobreak >nul
 call npm run dev
 
 pause

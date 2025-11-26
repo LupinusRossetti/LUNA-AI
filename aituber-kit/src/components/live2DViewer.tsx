@@ -96,7 +96,7 @@ export default function Live2DViewer(props: Live2DViewerProps = {}) {
 
   console.log('Rendering Live2DViewer', { characterId, modelPath, position })
   return (
-    <div className={`fixed ${positionClass} bottom-0 w-1/2 h-screen z-5`}>
+    <div className={`fixed ${positionClass} bottom-0 w-1/2 h-screen z-0`}>
       <Script
         key={`cubismcore-${scriptLoadRetries.cubismcore}`}
         src="/scripts/live2dcubismcore.min.js"

@@ -206,11 +206,12 @@ const Live2DComponent = ({ characterId, modelPath }: Live2DComponentProps = {} a
     if (!canvasContainerRef.current) return
 
     const app = new Application({
-      width: window.innerWidth,
-      height: window.innerHeight,
+      width: canvasContainerRef.current.clientWidth || window.innerWidth,
+      height: canvasContainerRef.current.clientHeight || window.innerHeight,
       view: canvasContainerRef.current,
       backgroundAlpha: 0,
       antialias: true,
+      resizeTo: canvasContainerRef.current, // 親要素のサイズに自動リサイズ
     })
 
     setApp(app)
@@ -280,9 +281,22 @@ const Live2DComponent = ({ characterId, modelPath }: Live2DComponentProps = {} a
     }
 
     const handlePointerMove = (event: PointerEvent) => {
-      if (isDragging) {
-        model.x = event.clientX - dragOffset.x
-        model.y = event.clientY - dragOffset.y
+      if (isDragging && app) {
+        // 画面全体にドラッグ可能（会話ログやセリフ枠にかぶらないように）
+        const minX = -app.renderer.width / 2
+        const maxX = app.renderer.width * 1.5
+        const minY = -app.renderer.height / 2
+        const maxY = app.renderer.height * 1.5
+        
+        let newX = event.clientX - dragOffset.x
+        let newY = event.clientY - dragOffset.y
+        
+        // 範囲内に制限（実際には制限を緩くして画面全体に移動可能にする）
+        newX = Math.max(minX, Math.min(maxX, newX))
+        newY = Math.max(minY, Math.min(maxY, newY))
+        
+        model.x = newX
+        model.y = newY
       }
     }
 
