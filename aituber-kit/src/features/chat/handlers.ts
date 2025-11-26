@@ -15,9 +15,9 @@ import webSocketStore from '@/features/stores/websocketStore'
 import i18next from 'i18next'
 import toastStore from '@/features/stores/toast'
 import { generateMessageId } from '@/utils/messageUtils'
-import { isMultiModalAvailable } from '@/features/constants/aiModels'
 import { SYSTEM_PROMPT } from '@/features/constants/systemPromptConstants'
-import { SpeakQueue, notifySpeechEnd } from '@/features/messages/speakQueue';
+import { SpeakQueue, notifySpeechEnd } from '@/features/messages/speakQueue'
+import { extractCompleteXMLTags, ParsedDialogue } from '@/features/chat/xmlParser'
 
 // ============================================================
 // 共通定数・ユーティリティ
@@ -76,7 +76,7 @@ const extractSentence = (
 }
 
 /**
- * 声再生とUI同期処理
+ * 声再生とUI同期処理（従来の感情タグ形式用）
  */
 const handleSpeakAndStateUpdate = (
   sessionId: string,
@@ -100,6 +100,51 @@ const handleSpeakAndStateUpdate = (
     return
   }
 
+  speakCharacter(
+    sessionId,
+    { message: sentence, emotion },
+    () => {
+      hs.incrementChatProcessingCount()
+      currentSlideMessagesRef.current.push(sentence)
+      homeStore.setState({
+        slideMessages: [...currentSlideMessagesRef.current],
+      })
+    },
+    () => {
+      hs.decrementChatProcessingCount()
+      currentSlideMessagesRef.current.shift()
+      homeStore.setState({
+        slideMessages: [...currentSlideMessagesRef.current],
+      })
+    }
+  )
+}
+
+/**
+ * 声再生とUI同期処理（XML形式用、キャラクター指定）
+ */
+const handleSpeakAndStateUpdateForCharacter = (
+  sessionId: string,
+  sentence: string,
+  emotion: EmotionType,
+  character: 'A' | 'B',
+  currentSlideMessagesRef: { current: string[] }
+) => {
+  const hs = homeStore.getState()
+
+  // 発話不要な記号列は無視
+  if (
+    sentence === '' ||
+    sentence.replace(
+      /^[\s\u3000\t\n\r\[\(\{「［（【『〈《〔｛«‹〘〚〛〙›»〕》〉』】）］」\}\)\]'"''""・、。,.!?！？:：;；\-_=+~～*＊@＠#＃$＄%％^＾&＆|｜\\＼/／`｀]+$/gu,
+      ''
+    ) === ''
+  ) {
+    return
+  }
+
+  // TODO: キャラクターA/B別々の音声設定を使用する（タスク4で実装）
+  // 現時点では従来のspeakCharacterを使用
   speakCharacter(
     sessionId,
     { message: sentence, emotion },
@@ -178,88 +223,6 @@ const speakWholeTextWithEmotions = (text: string) => {
   }
 }
 // ============================================================
-// マルチモーダル判定（内部AI用）
-// ============================================================
-
-const askAIForMultiModalDecision = async (
-  userMessage: string,
-  image: string,
-  decisionPrompt: string
-): Promise<boolean> => {
-  try {
-    const currentChatLog = homeStore.getState().chatLog
-    const recentMessages = currentChatLog.slice(-3)
-
-    let conversationHistory = ''
-    if (recentMessages.length > 0) {
-      conversationHistory = '\n\n直近の会話履歴:\n'
-      const textOnlyMessages = messageSelectors.cutImageMessage(recentMessages)
-      textOnlyMessages.forEach((msg, index) => {
-        const content = msg.content || ''
-        conversationHistory += `${index + 1}. ${msg.role === 'user' ? 'ユーザー' : 'アシスタント'
-          }: ${content}\n`
-      })
-    }
-
-    const decisionMessage: Message = {
-      role: 'user',
-      content: [
-        {
-          type: 'text',
-          text: `Conversation History:\n${conversationHistory}\n\nUser Message: "${userMessage}"`,
-        },
-        { type: 'image', image },
-      ],
-      timestamp: new Date().toISOString(),
-    }
-
-    const systemMessage: Message = {
-      role: 'system',
-      content: decisionPrompt,
-    }
-
-    const response = await getAIChatResponseStream([
-      systemMessage,
-      decisionMessage,
-    ])
-
-    if (!response) return false
-
-    const reader = response.getReader()
-    let result = ''
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        result += value
-      }
-    } finally {
-      reader.releaseLock()
-    }
-
-    const decision = result.trim().toLowerCase()
-    const affirmativeResponses = [
-      'はい',
-      'yes',
-      'oui',
-      'sí',
-      'ja',
-      '是',
-      '예',
-      'tak',
-      'da',
-      'sim',
-    ]
-
-    return affirmativeResponses.some((v) => decision.includes(v))
-  } catch (error) {
-    console.error('AI判断でエラー:', error)
-    return false
-  }
-}
-
-// ============================================================
 // speakMessageHandler
 // ============================================================
 
@@ -301,11 +264,17 @@ export const processAIResponse = async (messages: Message[]) => {
 
   const reader = stream.getReader()
   let receivedChunksForSpeech = ''
+  let receivedChunksForXML = '' // XML形式用のバッファ
   let currentMessageId: string | null = null
+  let currentMessageIdA: string | null = null // アイリス用メッセージID
+  let currentMessageIdB: string | null = null // フィオナ用メッセージID
   let currentMessageContent = ''
+  let currentMessageContentA = '' // アイリス用メッセージ内容
+  let currentMessageContentB = '' // フィオナ用メッセージ内容
   let currentEmotionTag = ''
   let isCodeBlock = false
   let codeBlockContent = ''
+  let isXMLMode = false // XML形式モードかどうか
 
   try {
     while (true) {
@@ -314,6 +283,12 @@ export const processAIResponse = async (messages: Message[]) => {
       if (value) {
         let textToAdd = value
 
+        // XML形式の検出（最初のチャンクで判定）
+        if (!isXMLMode && (value.includes('<A') || value.includes('<B'))) {
+          isXMLMode = true
+          console.log('[XML Mode] XML形式を検出、XMLパーサーを使用します')
+        }
+
         if (!isCodeBlock) {
           const delimiterIdx = value.indexOf(CODE_DELIMITER)
           if (delimiterIdx !== -1) {
@@ -321,36 +296,104 @@ export const processAIResponse = async (messages: Message[]) => {
           }
         }
 
-        if (currentMessageId === null) {
-          currentMessageId = generateMessageId()
-          currentMessageContent = textToAdd
+        // XML形式の場合は別処理
+        if (isXMLMode) {
+          receivedChunksForXML += value
+          // XMLタグの処理は後でまとめて行う
+        } else {
+          // 従来の感情タグ形式の処理
+          if (currentMessageId === null) {
+            currentMessageId = generateMessageId()
+            currentMessageContent = textToAdd
 
-          if (currentMessageContent) {
+            if (currentMessageContent) {
+              homeStore.getState().upsertMessage({
+                id: currentMessageId,
+                role: 'assistant',
+                content: stripEmotionTagsForDisplay(currentMessageContent),
+              })
+            }
+          } else if (!isCodeBlock) {
+            currentMessageContent += textToAdd
+            if (textToAdd) {
+              homeStore.getState().upsertMessage({
+                id: currentMessageId,
+                role: 'assistant',
+                content: stripEmotionTagsForDisplay(currentMessageContent),
+              })
+            }
+          }
+
+          receivedChunksForSpeech += value
+        }
+      }
+
+      // ======== XML形式の処理 ========
+      if (isXMLMode && receivedChunksForXML) {
+        const { completeTags, remainingText } = extractCompleteXMLTags(receivedChunksForXML)
+        
+        // 完全なXMLタグを処理
+        for (const dialogue of completeTags) {
+          const character = dialogue.character
+          const emotion = dialogue.emotion as EmotionType
+          const text = dialogue.text
+          
+          // メッセージIDの初期化
+          if (character === 'A' && currentMessageIdA === null) {
+            currentMessageIdA = generateMessageId()
             homeStore.getState().upsertMessage({
-              id: currentMessageId,
-              role: 'assistant',
-              content: stripEmotionTagsForDisplay(currentMessageContent),
+              id: currentMessageIdA,
+              role: 'assistant-A',
+              content: '',
             })
           }
-        } else if (!isCodeBlock) {
-          currentMessageContent += textToAdd
-          if (textToAdd) {
+          if (character === 'B' && currentMessageIdB === null) {
+            currentMessageIdB = generateMessageId()
             homeStore.getState().upsertMessage({
-              id: currentMessageId,
-              role: 'assistant',
-              content: stripEmotionTagsForDisplay(currentMessageContent),
+              id: currentMessageIdB,
+              role: 'assistant-B',
+              content: '',
             })
+          }
+          
+          // メッセージ内容を更新
+          if (character === 'A') {
+            currentMessageContentA += text
+            homeStore.getState().upsertMessage({
+              id: currentMessageIdA!,
+              role: 'assistant-A',
+              content: currentMessageContentA,
+            })
+          } else {
+            currentMessageContentB += text
+            homeStore.getState().upsertMessage({
+              id: currentMessageIdB!,
+              role: 'assistant-B',
+              content: currentMessageContentB,
+            })
+          }
+          
+          // 音声合成（各キャラクター別々に）
+          if (text.trim()) {
+            handleSpeakAndStateUpdateForCharacter(
+              sessionId,
+              text,
+              emotion,
+              character,
+              currentSlideMessagesRef
+            )
           }
         }
-
-        receivedChunksForSpeech += value
+        
+        // 残りのテキストを保持
+        receivedChunksForXML = remainingText
       }
 
       let processable = receivedChunksForSpeech
       receivedChunksForSpeech = ''
 
-      // ======== 音声処理ループ ========
-      while (processable.length > 0) {
+      // ======== 音声処理ループ（従来の感情タグ形式） ========
+      while (processable.length > 0 && !isXMLMode) {
         const prevText = processable
 
         // --- コードブロック中 ---
@@ -476,30 +519,91 @@ export const processAIResponse = async (messages: Message[]) => {
 
       if (done) {
         // ===== ストリーム終了処理 =====
-        if (receivedChunksForSpeech.length > 0) {
-          if (!isCodeBlock) {
-            const finalSentence = receivedChunksForSpeech
-            const { emotionTag, remainingText: finalText } =
-              extractEmotion(finalSentence)
-
-            if (emotionTag) currentEmotionTag = emotionTag
-
-            handleSpeakAndStateUpdate(
-              sessionId,
-              finalText,
-              currentEmotionTag,
-              currentSlideMessagesRef
-            )
-          } else {
-            codeBlockContent += receivedChunksForSpeech
-            if (codeBlockContent.trim()) {
-              homeStore.getState().upsertMessage({
-                role: 'code',
-                content: codeBlockContent,
-              })
+        if (isXMLMode) {
+          // XML形式の最終処理
+          if (receivedChunksForXML.length > 0) {
+            const { completeTags } = extractCompleteXMLTags(receivedChunksForXML)
+            for (const dialogue of completeTags) {
+              const character = dialogue.character
+              const emotion = dialogue.emotion as EmotionType
+              const text = dialogue.text
+              
+              if (character === 'A') {
+                if (currentMessageIdA === null) {
+                  currentMessageIdA = generateMessageId()
+                  homeStore.getState().upsertMessage({
+                    id: currentMessageIdA,
+                    role: 'assistant-A',
+                    content: text,
+                  })
+                } else {
+                  currentMessageContentA += text
+                  homeStore.getState().upsertMessage({
+                    id: currentMessageIdA,
+                    role: 'assistant-A',
+                    content: currentMessageContentA,
+                  })
+                }
+                handleSpeakAndStateUpdateForCharacter(
+                  sessionId,
+                  text,
+                  emotion,
+                  'A',
+                  currentSlideMessagesRef
+                )
+              } else {
+                if (currentMessageIdB === null) {
+                  currentMessageIdB = generateMessageId()
+                  homeStore.getState().upsertMessage({
+                    id: currentMessageIdB,
+                    role: 'assistant-B',
+                    content: text,
+                  })
+                } else {
+                  currentMessageContentB += text
+                  homeStore.getState().upsertMessage({
+                    id: currentMessageIdB,
+                    role: 'assistant-B',
+                    content: currentMessageContentB,
+                  })
+                }
+                handleSpeakAndStateUpdateForCharacter(
+                  sessionId,
+                  text,
+                  emotion,
+                  'B',
+                  currentSlideMessagesRef
+                )
+              }
             }
-            codeBlockContent = ''
-            isCodeBlock = false
+          }
+        } else {
+          // 従来の感情タグ形式の最終処理
+          if (receivedChunksForSpeech.length > 0) {
+            if (!isCodeBlock) {
+              const finalSentence = receivedChunksForSpeech
+              const { emotionTag, remainingText: finalText } =
+                extractEmotion(finalSentence)
+
+              if (emotionTag) currentEmotionTag = emotionTag
+
+              handleSpeakAndStateUpdate(
+                sessionId,
+                finalText,
+                currentEmotionTag,
+                currentSlideMessagesRef
+              )
+            } else {
+              codeBlockContent += receivedChunksForSpeech
+              if (codeBlockContent.trim()) {
+                homeStore.getState().upsertMessage({
+                  role: 'code',
+                  content: codeBlockContent,
+                })
+              }
+              codeBlockContent = ''
+              isCodeBlock = false
+            }
           }
         }
 
@@ -514,12 +618,32 @@ export const processAIResponse = async (messages: Message[]) => {
 
   homeStore.setState({ chatProcessing: false })
 
-  if (currentMessageContent.trim()) {
-    homeStore.getState().upsertMessage({
-      id: currentMessageId ?? generateMessageId(),
-      role: 'assistant',
-      content: stripEmotionTagsForDisplay(currentMessageContent.trim()),
-    })
+  // 最終メッセージの処理
+  if (isXMLMode) {
+    // XML形式の場合は既に処理済み
+    if (currentMessageContentA.trim() && currentMessageIdA) {
+      homeStore.getState().upsertMessage({
+        id: currentMessageIdA,
+        role: 'assistant-A',
+        content: currentMessageContentA.trim(),
+      })
+    }
+    if (currentMessageContentB.trim() && currentMessageIdB) {
+      homeStore.getState().upsertMessage({
+        id: currentMessageIdB,
+        role: 'assistant-B',
+        content: currentMessageContentB.trim(),
+      })
+    }
+  } else {
+    // 従来の感情タグ形式
+    if (currentMessageContent.trim()) {
+      homeStore.getState().upsertMessage({
+        id: currentMessageId ?? generateMessageId(),
+        role: 'assistant',
+        content: stripEmotionTagsForDisplay(currentMessageContent.trim()),
+      })
+    }
   }
 
   // 内部 AI → 外部通知 hook
@@ -806,19 +930,41 @@ export const handleSendChatFn = () => async (text: string) => {
 
   const sessionId = generateSessionId()
 
-  if (ss.realtimeAPIMode) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      homeStore.getState().upsertMessage({
-        role: 'user',
-        content: newMessage,
-        timestamp,
-      })
-    }
-    return
-  }
-
   // ---- スライドモードなど内部の特殊処理 ----
   let systemPrompt = ss.systemPrompt || SYSTEM_PROMPT
+  
+  // ---- 掛け合いモード判定（暫定: 環境変数で判定） ----
+  // TODO: より適切な判定方法を実装（タスク3で実装予定）
+  const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
+  
+  // ---- XML形式の指示を追加（掛け合いモード時） ----
+  if (isDialogueMode) {
+    const xmlInstruction = `
+
+[掛け合い形式]
+あなたはアイリス（A）とフィオナ（B）の2人のキャラクターとして、掛け合い形式で応答してください。
+
+出力形式（XML形式）:
+<A emotion="happy">アイリスのセリフ</A>
+<B emotion="relaxed">フィオナのセリフ</B>
+<A emotion="surprised">アイリスのセリフ</A>
+
+重要:
+- 必ずXML形式で出力すること
+- <A>タグはアイリス（元気でハイテンション）のセリフ
+- <B>タグはフィオナ（丁寧で優しい）のセリフ
+- emotion属性は "neutral", "happy", "angry", "sad", "relaxed", "surprised" のいずれか
+- 掛け合いは最大500文字以内（A+B合計）
+- ターン数は制限なし（500文字以内であれば）
+- 自然な会話の流れを保つこと
+
+例:
+<A emotion="happy">やっほー！お姉ちゃん、今日はどんな話する？</A>
+<B emotion="relaxed">ふふ、アイリスちゃん、楽しみですねぇ。</B>
+<A emotion="surprised">えぇ！？フィオナ、何か企んでるの！？</A>
+`
+    systemPrompt = systemPrompt + xmlInstruction
+  }
 
   if (ss.slideMode) {
     if (sls.isPlaying) return
@@ -859,58 +1005,7 @@ export const handleSendChatFn = () => async (text: string) => {
 
   homeStore.setState({ chatProcessing: true })
 
-  // ========================================================
-  // マルチモーダル判断（内部AIモード）
-  // ========================================================
-  if (
-    modalImage &&
-    !isMultiModalAvailable(
-      ss.selectAIService,
-      ss.selectAIModel,
-      ss.enableMultiModal,
-      ss.multiModalMode,
-      ss.customModel
-    )
-  ) {
-    toastStore.getState().addToast({
-      message: i18next.t('MultiModalNotSupported'),
-      type: 'error',
-      tag: 'multimodal-not-supported',
-    })
-    homeStore.setState({
-      chatProcessing: false,
-      modalImage: '',
-    })
-    return
-  }
-
   let userMessageContent: Message['content'] = newMessage
-  let shouldUseImage = false
-
-  if (modalImage) {
-    switch (ss.multiModalMode) {
-      case 'always':
-        shouldUseImage = true
-        break
-      case 'never':
-        shouldUseImage = false
-        break
-      case 'ai-decide':
-        shouldUseImage = await askAIForMultiModalDecision(
-          newMessage,
-          modalImage,
-          ss.multiModalAiDecisionPrompt
-        )
-        break
-    }
-
-    if (shouldUseImage) {
-      userMessageContent = [
-        { type: 'text' as const, text: newMessage },
-        { type: 'image' as const, image: modalImage },
-      ]
-    }
-  }
 
   // === 内部AIログ更新 ===
   homeStore.getState().upsertMessage({
@@ -942,98 +1037,3 @@ export const handleSendChatFn = () => async (text: string) => {
   }
 }
 
-// ============================================================
-// WebSocket からのテキスト受信（リアルタイムAPI用）
-// ============================================================
-
-/**
- * WebSocketからのテキストを受信したときの処理
- * 外部AIからの JSON:
- * {
- *   type: "start" | "message" | "end",
- *   role: "assistant",
- * - response.audio → バイナリ音声
- * - response.content_part.done → テキスト完了
- *
- * ※ 外部AI（orchestrator）と同時使用できるように
- *    完全に独立したコードにしてある
- */
-export const handleReceiveTextFromRtFn = () => {
-  // 音声連続イベント用のセッションID
-  let currentSessionId: string | null = null
-
-  return async (
-    text?: string,
-    role?: string,
-    type?: string,
-    buffer?: ArrayBuffer
-  ) => {
-    const ss = settingsStore.getState()
-
-    // RealtimeAPI / Audio モード “以外” なら無視
-    if (!ss.realtimeAPIMode && !ss.audioMode) {
-      console.log('realtime/audio mode disabled → ignore RT message')
-      return
-    }
-
-    // == セッションID（連続イベントを 1 会話として扱う） ==
-    if (currentSessionId === null) {
-      currentSessionId = generateSessionId()
-    }
-    const sessionId = currentSessionId
-
-    homeStore.setState({ chatProcessing: true })
-
-    // ========================================================
-    // ① アシスタントからの音声（response.audio）
-    // ========================================================
-    if (role === 'assistant' && type?.includes('response.audio') && buffer) {
-      console.log('RT: response.audio')
-
-      try {
-        speakCharacter(
-          sessionId,
-          {
-            emotion: 'neutral',
-            message: '',
-            buffer,        // 直接音声バッファを渡す
-          },
-          () => { },       // onStart
-          () => { }        // onComplete
-        )
-      } catch (e) {
-        console.error('Error in speakCharacter (audio-mode):', e)
-      }
-
-      homeStore.setState({ chatProcessing: false })
-      return
-    }
-
-    // ========================================================
-    // ② アシスタントのテキスト出力（response.content_part.done）
-    // ========================================================
-    if (role === 'assistant' && type === 'response.content_part.done') {
-      console.log('RT: response.content_part.done')
-
-      if (text && text.trim().length > 0) {
-        // チャットログへの追加（リアルタイムモードは UI 表示のみ）
-        homeStore.getState().upsertMessage({
-          role: 'assistant',
-          content: text,
-        })
-      }
-
-      homeStore.setState({ chatProcessing: false })
-
-      // 完了したのでセッションIDリセット
-      currentSessionId = null
-      return
-    }
-
-    // ========================================================
-    // ③ その他（未想定のイベントは安全に破棄）
-    // ========================================================
-    console.log('RT: unknown event', { role, type })
-    homeStore.setState({ chatProcessing: false })
-  }
-}

@@ -347,7 +347,6 @@ const Character = () => {
     selectedLive2DPath,
     modelType,
     fixedCharacterPosition,
-    selectAIService,
     systemPrompt,
     characterPreset1,
     characterPreset2,
@@ -675,13 +674,9 @@ const Character = () => {
           <div className="my-4 text-xl font-bold">
             {t('CharacterSettingsPrompt')}
           </div>
-          {selectAIService === 'dify' ? (
-            <div className="my-4">{t('DifyInstruction')}</div>
-          ) : (
-            <div className="my-4 whitespace-pre-line">
-              {t('CharacterSettingsInfo')}
-            </div>
-          )}
+          <div className="my-4 whitespace-pre-line">
+            {t('CharacterSettingsInfo')}
+          </div>
         </div>
         <div className="my-4 whitespace-pre-line">
           {t('CharacterpresetInfo')}

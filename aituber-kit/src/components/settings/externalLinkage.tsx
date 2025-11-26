@@ -1,38 +1,17 @@
 import { useTranslation } from 'react-i18next'
-import settingsStore from '@/features/stores/settings'
-import { TextButton } from '../textButton'
-import { useCallback } from 'react'
 
 const ExternalLinkage = () => {
   const { t } = useTranslation()
-  const externalLinkageMode = settingsStore((s) => s.externalLinkageMode)
-
-  const handleExternalLinkageModeChange = useCallback((newMode: boolean) => {
-    settingsStore.setState({
-      externalLinkageMode: newMode,
-    })
-
-    if (newMode) {
-      settingsStore.setState({
-        conversationContinuityMode: false,
-        realtimeAPIMode: false,
-      })
-    }
-  }, [])
 
   return (
     <div className="mb-10">
       <div className="mb-4 text-xl font-bold">{t('ExternalLinkageMode')}</div>
-      <div className="my-2">
-        <TextButton
-          onClick={() => {
-            handleExternalLinkageModeChange(!externalLinkageMode)
-          }}
-        >
-          {externalLinkageMode ? t('StatusOn') : t('StatusOff')}
-        </TextButton>
-      </div>
+      <p className="text-sm text-text2 leading-relaxed">
+        外部連携モードは常にオンで、Gemini-2.0-flash による検索グラウンディングを使ってるよ。
+      </p>
     </div>
   )
 }
+
 export default ExternalLinkage
+

@@ -4,6 +4,13 @@ import { useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import Script from 'next/script'
 import homeStore from '@/features/stores/home'
+import settingsStore from '@/features/stores/settings'
+import type { ComponentType } from 'react'
+
+type Live2DComponentProps = {
+  characterId?: 'A' | 'B'
+  modelPath?: string
+}
 
 const Live2DComponent = dynamic(
   () => {
@@ -26,9 +33,20 @@ const Live2DComponent = dynamic(
       return null
     },
   }
-)
+) as ComponentType<Live2DComponentProps>
 
-export default function Live2DViewer() {
+type Live2DViewerProps = {
+  characterId?: 'A' | 'B'
+  modelPath?: string
+  position?: 'left' | 'right' | 'top' | 'bottom'
+}
+
+export default function Live2DViewer(props: Live2DViewerProps = {}) {
+  const { 
+    characterId, 
+    modelPath,
+    position = 'right'
+  } = props
   const [isMounted, setIsMounted] = useState(false)
   const [scriptLoadRetries, setScriptLoadRetries] = useState({
     cubismcore: 0,
@@ -64,9 +82,16 @@ export default function Live2DViewer() {
     return null
   }
 
-  console.log('Rendering Live2DViewer')
+  // 位置に応じたクラス名
+  const positionClass = 
+    position === 'left' ? 'left-0' :
+    position === 'right' ? 'right-0' :
+    position === 'top' ? 'top-0' :
+    'bottom-0'
+
+  console.log('Rendering Live2DViewer', { characterId, modelPath, position })
   return (
-    <div className="fixed bottom-0 right-0 w-screen h-screen z-5">
+    <div className={`fixed ${positionClass} bottom-0 w-1/2 h-screen z-5`}>
       <Script
         key={`cubismcore-${scriptLoadRetries.cubismcore}`}
         src="/scripts/live2dcubismcore.min.js"
@@ -84,7 +109,12 @@ export default function Live2DViewer() {
           }
         }}
       />
-      {isCubismCoreLoaded && <Live2DComponent />}
+      {isCubismCoreLoaded && (
+        <Live2DComponent 
+          characterId={characterId} 
+          modelPath={modelPath} 
+        />
+      )}
     </div>
   )
 }

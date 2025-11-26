@@ -147,10 +147,10 @@ const Chat = ({
     ui = isYoutube ? uiColors.listener : uiColors.streamer
   } else if (role === 'assistant-A') {
     ui = uiColors.characterA
-    displayCharacterName = "アイリス・ロゼッティ" // TODO: 環境変数化
+    displayCharacterName = uiColors.characterA.name || "アイリス・ロゼッティ"
   } else if (role === 'assistant-B') {
     ui = uiColors.characterB
-    displayCharacterName = "フィオナ・ロゼッティ" // TODO: 環境変数化
+    displayCharacterName = uiColors.characterB.name || "フィオナ・ロゼッティ"
   } else {
     // fallback (legacy assistant)
     const APP_ID = process.env.NEXT_PUBLIC_APP_ID

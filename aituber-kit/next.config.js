@@ -1,53 +1,43 @@
-const fs = require("fs");
-const path = require("path");
-const dotenv = require("dotenv");
-const dotenvExpand = require("dotenv-expand");
+const fs = require('fs');
+const path = require('path');
 
-// =====================
-// 1. .env読み込み
-// =====================
-const mode = process.env.APP_ENV ? `.${process.env.APP_ENV}` : ".A";
-const envPath = `.env${mode}`;
-
-if (fs.existsSync(envPath)) {
-  dotenvExpand.expand(dotenv.config({ path: envPath }));
-  console.log(`Loaded env: ${envPath}`);
-} else {
-  console.warn(`env file not found: ${envPath}`);
-}
-
-// =====================
-// 2. PROMPT_FILE 読み込み
-// =====================
-let SystemPromptValue = process.env.NEXT_PUBLIC_SYSTEM_PROMPT || "";
-
-if (process.env.PROMPT_FILE) {
-  const promptFile = path.resolve(process.env.PROMPT_FILE);
+// プロンプトファイルの読み込み関数
+const loadPromptFile = (filePath) => {
+  if (!filePath) return '';
   try {
-    SystemPromptValue = fs.readFileSync(promptFile, "utf8");
-    console.log(`Loaded prompt: ${promptFile}`);
-  } catch (e) {
-    console.error(`Failed to load prompt file: ${promptFile}`);
+    const fullPath = path.resolve(process.cwd(), filePath);
+    if (fs.existsSync(fullPath)) {
+      return fs.readFileSync(fullPath, 'utf8');
+    }
+    console.warn(`Prompt file not found: ${fullPath}`);
+    return '';
+  } catch (error) {
+    console.error(`Error loading prompt file ${filePath}:`, error);
+    return '';
   }
-}
+};
 
-// =====================
-// 3. Next.js の環境変数として注入（DefinePlugin 不使用）
-// =====================
-module.exports = {
+// 環境変数からプロンプトファイルパスを取得して読み込む
+const promptFileA = process.env.NEXT_PUBLIC_PROMPT_FILE_A || './prompts/iris.txt';
+const promptFileB = process.env.NEXT_PUBLIC_PROMPT_FILE_B || './prompts/fiona.txt';
+const systemPromptA = loadPromptFile(promptFileA);
+const systemPromptB = loadPromptFile(promptFileB);
+
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   reactStrictMode: true,
-  distDir: mode === ".A" ? ".next-A" : ".next-B",
+  poweredByHeader: false, // セキュリティ強化: X-Powered-By ヘッダーを隠蔽
   eslint: {
     ignoreDuringBuilds: true,
   },
-
-
   webpack: (config) => {
     config.experiments = { ...config.experiments, topLevelAwait: true };
     return config;
   },
-
   env: {
-    NEXT_PUBLIC_SYSTEM_PROMPT: SystemPromptValue,
+    NEXT_PUBLIC_SYSTEM_PROMPT_A: systemPromptA,
+    NEXT_PUBLIC_SYSTEM_PROMPT_B: systemPromptB,
   },
-}
+};
+
+module.exports = nextConfig;

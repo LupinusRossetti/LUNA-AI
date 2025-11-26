@@ -12,8 +12,6 @@ import Settings from './settings'
 import { Webcam } from './webcam'
 import Slides from './slides'
 import Capture from './capture'
-import { isMultiModalAvailable } from '@/features/constants/aiModels'
-import { AIService } from '@/features/constants/settings'
 import { getLatestAssistantMessage } from '@/utils/assistantMessageUtils'
 
 // モバイルデバイス検出用のカスタムフック
@@ -39,11 +37,6 @@ const useIsMobile = () => {
 }
 
 export const Menu = () => {
-  const selectAIService = settingsStore((s) => s.selectAIService)
-  const selectAIModel = settingsStore((s) => s.selectAIModel)
-  const enableMultiModal = settingsStore((s) => s.enableMultiModal)
-  const multiModalMode = settingsStore((s) => s.multiModalMode)
-  const customModel = settingsStore((s) => s.customModel)
   const youtubeMode = settingsStore((s) => s.youtubeMode)
   const youtubePlaying = settingsStore((s) => s.youtubePlaying)
   const slideMode = settingsStore((s) => s.slideMode)
@@ -257,38 +250,30 @@ export const Menu = () => {
                       onClick={toggleWebcam}
                     />
                   </div>
-                  {isMultiModalAvailable(
-                    selectAIService as AIService,
-                    selectAIModel,
-                    enableMultiModal,
-                    multiModalMode,
-                    customModel
-                  ) && (
-                    <div className="order-4">
-                      <IconButton
-                        iconName="24/AddImage"
-                        isProcessing={false}
-                        onClick={() => imageFileInputRef.current?.click()}
-                      />
-                      <input
-                        type="file"
-                        className="hidden"
-                        accept="image/*"
-                        ref={imageFileInputRef}
-                        onChange={(e) => {
-                          const file = e.target.files?.[0]
-                          if (file) {
-                            const reader = new FileReader()
-                            reader.onload = (e) => {
-                              const imageUrl = e.target?.result as string
-                              homeStore.setState({ modalImage: imageUrl })
-                            }
-                            reader.readAsDataURL(file)
+                  <div className="order-4">
+                    <IconButton
+                      iconName="24/AddImage"
+                      isProcessing={false}
+                      onClick={() => imageFileInputRef.current?.click()}
+                    />
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/*"
+                      ref={imageFileInputRef}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) {
+                          const reader = new FileReader()
+                          reader.onload = (event) => {
+                            const imageUrl = event.target?.result as string
+                            homeStore.setState({ modalImage: imageUrl })
                           }
-                        }}
-                      />
-                    </div>
-                  )}
+                          reader.readAsDataURL(file)
+                        }
+                      }}
+                    />
+                  </div>
                 </>
               )}
               {youtubeMode && (

@@ -33,8 +33,13 @@ const setModelPosition = (
   }
 }
 
-const Live2DComponent = (): JSX.Element => {
-  console.log('Live2DComponent rendering')
+type Live2DComponentProps = {
+  characterId?: 'A' | 'B'
+  modelPath?: string
+}
+
+const Live2DComponent = ({ characterId, modelPath }: Live2DComponentProps = {} as Live2DComponentProps): JSX.Element => {
+  console.log('Live2DComponent rendering', { characterId, modelPath })
 
   const canvasContainerRef = useRef<HTMLCanvasElement>(null)
   const [app, setApp] = useState<Application | null>(null)
@@ -44,7 +49,16 @@ const Live2DComponent = (): JSX.Element => {
   const modelRef = useRef<InstanceType<typeof Live2DModel> | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
-  const selectedLive2DPath = settingsStore((state) => state.selectedLive2DPath)
+  
+  // キャラクターIDに応じてモデルパスを選択
+  const defaultLive2DPath = settingsStore((state) => state.selectedLive2DPath)
+  const live2DPathA = settingsStore((state) => state.selectedLive2DPathA)
+  const live2DPathB = settingsStore((state) => state.selectedLive2DPathB)
+  
+  const selectedLive2DPath = modelPath || 
+    (characterId === 'A' ? live2DPathA : 
+     characterId === 'B' ? live2DPathB : 
+     defaultLive2DPath)
   // ピンチジェスチャー用の状態
   const [pinchDistance, setPinchDistance] = useState<number | null>(null)
   const [initialScale, setInitialScale] = useState<number | null>(null)

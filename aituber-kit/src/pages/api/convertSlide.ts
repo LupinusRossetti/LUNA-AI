@@ -4,16 +4,11 @@ import fs from 'fs'
 import path from 'path'
 import { createCanvas } from 'canvas'
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs'
-import { createOpenAI } from '@ai-sdk/openai'
-import { createAnthropic } from '@ai-sdk/anthropic'
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { generateObject } from 'ai'
 import { z } from 'zod'
 
-import { AIService } from '@/features/constants/settings'
-import { isMultiModalModel } from '@/features/constants/aiModels'
-
-type AIServiceConfig = Record<AIService, () => any>
+import { defaultModel } from '@/features/constants/aiModels'
 
 export const config = {
   api: {
@@ -152,8 +147,6 @@ interface SlideLineResponse {
 async function createSlideLine(
   imageBase64: string,
   apiKey: string,
-  aiService: string,
-  model: string,
   selectLanguage: string,
   previousResult: string | null
 ): Promise<SlideLineResponse> {
@@ -161,80 +154,35 @@ async function createSlideLine(
     ? `Previous slide content: ${previousResult}`
     : 'This is the first slide.'
 
-  // マルチモーダル対応のチェック
-  if (!isMultiModalModel(aiService as AIService, model)) {
-    throw new Error(`Model ${model} does not support multimodal features`)
-  }
-
-  const aiServiceConfig: Partial<AIServiceConfig> = {
-    openai: () => createOpenAI({ apiKey }),
-    anthropic: () => createAnthropic({ apiKey }),
-    google: () => createGoogleGenerativeAI({ apiKey }),
-    // 他のプロバイダーは必要に応じて追加
-  }
-
-  const aiServiceInstance = aiServiceConfig[aiService as AIService]
-
-  if (!aiServiceInstance) {
-    throw new Error(
-      `AI service ${aiService} is not supported for slide conversion`
-    )
-  }
-
-  const instance = aiServiceInstance()
+  const aiInstance = createGoogleGenerativeAI({ apiKey })
+  const effectiveModel =
+    process.env.NEXT_PUBLIC_GOOGLE_MODEL || defaultModel
 
   let response: any
   try {
-    if (aiService == 'anthropic') {
-      response = await generateObject({
-        model: instance(model),
-        messages: [
-          {
-            role: 'system',
-            content: `${systemPromptForAnthropic.replace('{{language}}', selectLanguage)}\n${additionalPrompt}`,
-          },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: 'Describe the image in detail.',
-              },
-              {
-                type: 'image',
-                image: `${imageBase64}`,
-              },
-            ],
-          },
-        ],
-        schema: schema,
-      })
-    } else {
-      response = await generateObject({
-        model: instance(model),
-        messages: [
-          {
-            role: 'system',
-            content: `${systemPrompt.replace('{{language}}', selectLanguage)}\n${additionalPrompt}`,
-          },
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: 'Describe the image in detail.',
-              },
-              {
-                type: 'image',
-                image: `${imageBase64}`,
-              },
-            ],
-          },
-        ],
-        output: 'no-schema',
-        mode: 'json',
-      })
-    }
+    response = await generateObject({
+      model: aiInstance(effectiveModel),
+      schema: schema,
+      messages: [
+        {
+          role: 'system',
+          content: `${systemPrompt.replace('{{language}}', selectLanguage)}\n${additionalPrompt}`,
+        },
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: 'Describe the image in detail.',
+            },
+            {
+              type: 'image',
+              image: `${imageBase64}`,
+            },
+          ],
+        },
+      ],
+    })
   } catch (error) {
     console.error('AI service request error:', error)
     throw new Error(`Failed to request AI service: ${error}`)
@@ -263,9 +211,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const file = Array.isArray(files.file) ? files.file[0] : files.file
     const folderName = getField('folderName')
-    const aiService = getField('aiService')
     const apiKey = getField('apiKey')
-    const model = getField('model')
     const selectLanguage = getField('selectLanguage')
 
     if (!file) {
@@ -299,13 +245,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     for (let i = 0; i < images.length; i++) {
       const imgBase64 = images[i]
-      if (aiService && apiKey && model) {
+      if (apiKey) {
         try {
           const slideLine = await createSlideLine(
             imgBase64,
             apiKey,
-            aiService,
-            model,
             language,
             previousResult
           )
@@ -320,9 +264,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           return
         }
       } else {
-        res
-          .status(500)
-          .json({ error: 'API Key and Model must not be undefined' })
+        res.status(500).json({ error: 'API Key must not be undefined' })
         return
       }
 

@@ -1,9 +1,8 @@
 import { useTranslation } from 'react-i18next'
 import { useEffect, useState } from 'react'
 import Image from 'next/image'
-import Link from 'next/link' // Link をインポート
+import Link from 'next/link'
 import settingsStore from '@/features/stores/settings'
-import { isMultiModalAvailable } from '@/features/constants/aiModels'
 import menuStore from '@/features/stores/menu'
 import slideStore from '@/features/stores/slide'
 import { TextButton } from '../textButton'
@@ -11,12 +10,6 @@ import SlideConvert from './slideConvert'
 
 const Slide = () => {
   const { t } = useTranslation()
-  const selectAIService = settingsStore((s) => s.selectAIService)
-  const selectAIModel = settingsStore((s) => s.selectAIModel)
-  const enableMultiModal = settingsStore((s) => s.enableMultiModal)
-  const multiModalMode = settingsStore((s) => s.multiModalMode)
-  const customModel = settingsStore((s) => s.customModel)
-
   const slideMode = settingsStore((s) => s.slideMode)
 
   const selectedSlideDocs = slideStore((s) => s.selectedSlideDocs)
@@ -71,18 +64,9 @@ const Slide = () => {
       </div>
       <div className="mb-4 text-xl font-bold">{t('SlideMode')}</div>
       <p className="">{t('SlideModeDescription')}</p>
-      <div className="my-2">
+          <div className="my-2">
         <TextButton
           onClick={toggleSlideMode}
-          disabled={
-            !isMultiModalAvailable(
-              selectAIService,
-              selectAIModel,
-              enableMultiModal,
-              multiModalMode,
-              customModel
-            )
-          }
         >
           {slideMode ? t('StatusOn') : t('StatusOff')}
         </TextButton>
@@ -132,13 +116,7 @@ const Slide = () => {
               </Link>
             )}
           </div>
-          {isMultiModalAvailable(
-            selectAIService,
-            selectAIModel,
-            enableMultiModal,
-            multiModalMode,
-            customModel
-          ) && <SlideConvert onFolderUpdate={handleFolderUpdate} />}
+          <SlideConvert onFolderUpdate={handleFolderUpdate} />
         </>
       )}
     </>

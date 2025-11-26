@@ -4,49 +4,41 @@ import { persist } from 'zustand/middleware'
 import { KoeiroParam, DEFAULT_PARAM } from '@/features/constants/koeiroParam'
 import { SYSTEM_PROMPT } from '@/features/constants/systemPromptConstants'
 import {
-  AIService,
   AIVoice,
   Language,
-  OpenAITTSVoice,
-  OpenAITTSModel,
-  RealtimeAPIModeContentType,
-  RealtimeAPIModeVoice,
-  RealtimeAPIModeAzureVoice,
-  AudioModeInputType,
-  SpeechRecognitionMode,
-  WhisperTranscriptionModel,
 } from '../constants/settings'
+
+type SpeechRecognitionMode = 'browser' | 'whisper'
 import { googleSearchGroundingModels } from '../constants/aiModels'
-import { migrateOpenAIModelName } from '@/utils/modelMigration'
 
 export const uiColors = {
   listener: {
-    name: process.env.NEXT_PUBLIC_LISTENER_NAME,
-    nameColor: process.env.NEXT_PUBLIC_LISTENER_NAME_COLOR,
-    nameBg: process.env.NEXT_PUBLIC_LISTENER_COLOR,
-    text: process.env.NEXT_PUBLIC_LISTENER_TEXT_COLOR,
-    bg: process.env.NEXT_PUBLIC_LISTENER_BG,
+    name: process.env.NEXT_PUBLIC_LISTENER_NAME || 'リスナー',
+    nameColor: process.env.NEXT_PUBLIC_LISTENER_NAME_COLOR || '#000000ff',
+    nameBg: process.env.NEXT_PUBLIC_LISTENER_COLOR || '#c09aff',
+    text: process.env.NEXT_PUBLIC_LISTENER_TEXT_COLOR || '#000000ff',
+    bg: process.env.NEXT_PUBLIC_LISTENER_BG || '#ffffffff',
   },
   streamer: {
-    name: process.env.NEXT_PUBLIC_STREAMER_NAME,
-    nameColor: process.env.NEXT_PUBLIC_STREAMER_NAME_COLOR,
-    nameBg: process.env.NEXT_PUBLIC_STREAMER_COLOR,
-    text: process.env.NEXT_PUBLIC_STREAMER_TEXT_COLOR,
-    bg: process.env.NEXT_PUBLIC_STREAMER_BG,
+    name: process.env.NEXT_PUBLIC_STREAMER_NAME || 'ルピナス・ロゼッティ',
+    nameColor: process.env.NEXT_PUBLIC_STREAMER_NAME_COLOR || '#000000ff',
+    nameBg: process.env.NEXT_PUBLIC_STREAMER_COLOR || '#87c9ff',
+    text: process.env.NEXT_PUBLIC_STREAMER_TEXT_COLOR || '#000000ff',
+    bg: process.env.NEXT_PUBLIC_STREAMER_BG || '#ffffffff',
   },
   characterA: {
-    name: process.env.NEXT_PUBLIC_CHARACTER_NAME,
-    nameColor: process.env.NEXT_PUBLIC_CHARACTER_A_NAME_COLOR,
-    nameBg: process.env.NEXT_PUBLIC_CHARACTER_A_COLOR,
-    text: process.env.NEXT_PUBLIC_CHARACTER_A_TEXT_COLOR,
-    bg: process.env.NEXT_PUBLIC_CHARACTER_A_BG,
+    name: process.env.NEXT_PUBLIC_CHARACTER_A_NAME || 'アイリス・ロゼッティ',
+    nameColor: process.env.NEXT_PUBLIC_CHARACTER_A_NAME_COLOR || '#ff0000ff',
+    nameBg: process.env.NEXT_PUBLIC_CHARACTER_A_COLOR || '#ffe066',
+    text: process.env.NEXT_PUBLIC_CHARACTER_A_TEXT_COLOR || '#ff0000ff',
+    bg: process.env.NEXT_PUBLIC_CHARACTER_A_BG || '#ffffffff',
   },
   characterB: {
-    name: process.env.NEXT_PUBLIC_CHARACTER_NAME,
-    nameColor: process.env.NEXT_PUBLIC_CHARACTER_B_NAME_COLOR,
-    nameBg: process.env.NEXT_PUBLIC_CHARACTER_B_COLOR,
-    text: process.env.NEXT_PUBLIC_CHARACTER_B_TEXT_COLOR,
-    bg: process.env.NEXT_PUBLIC_CHARACTER_B_BG,
+    name: process.env.NEXT_PUBLIC_CHARACTER_B_NAME || 'フィオナ・ロゼッティ',
+    nameColor: process.env.NEXT_PUBLIC_CHARACTER_B_NAME_COLOR || '#ff0000ff',
+    nameBg: process.env.NEXT_PUBLIC_CHARACTER_B_COLOR || '#ffb3d9',
+    text: process.env.NEXT_PUBLIC_CHARACTER_B_TEXT_COLOR || '#ff0000ff',
+    bg: process.env.NEXT_PUBLIC_CHARACTER_B_BG || '#ffffffff',
   },
 }
 
@@ -60,7 +52,6 @@ interface APIKeys {
   azureKey: string
   xaiKey: string
   groqKey: string
-  difyKey: string
   cohereKey: string
   mistralaiKey: string
   perplexityKey: string
@@ -101,25 +92,46 @@ interface Live2DSettings {
 }
 
 interface ModelProvider extends Live2DSettings {
-  selectAIService: AIService
-  selectAIModel: string
-  localLlmUrl: string
   selectVoice: AIVoice
+  selectVoiceA: AIVoice
+  selectVoiceB: AIVoice
   koeiroParam: KoeiroParam
   googleTtsType: string
   voicevoxSpeaker: string
+  voicevoxSpeakerA: string
+  voicevoxSpeakerB: string
   voicevoxSpeed: number
+  voicevoxSpeedA: number
+  voicevoxSpeedB: number
   voicevoxPitch: number
+  voicevoxPitchA: number
+  voicevoxPitchB: number
   voicevoxIntonation: number
+  voicevoxIntonationA: number
+  voicevoxIntonationB: number
   voicevoxServerUrl: string
   aivisSpeechSpeaker: string
+  aivisSpeechSpeakerA: string
+  aivisSpeechSpeakerB: string
   aivisSpeechSpeed: number
+  aivisSpeechSpeedA: number
+  aivisSpeechSpeedB: number
   aivisSpeechPitch: number
+  aivisSpeechPitchA: number
+  aivisSpeechPitchB: number
   aivisSpeechIntonationScale: number
+  aivisSpeechIntonationScaleA: number
+  aivisSpeechIntonationScaleB: number
   aivisSpeechServerUrl: string
   aivisSpeechTempoDynamics: number
+  aivisSpeechTempoDynamicsA: number
+  aivisSpeechTempoDynamicsB: number
   aivisSpeechPrePhonemeLength: number
+  aivisSpeechPrePhonemeLengthA: number
+  aivisSpeechPrePhonemeLengthB: number
   aivisSpeechPostPhonemeLength: number
+  aivisSpeechPostPhonemeLengthA: number
+  aivisSpeechPostPhonemeLengthB: number
   aivisCloudApiKey: string
   aivisCloudModelUuid: string
   aivisCloudStyleId: number
@@ -143,8 +155,8 @@ interface ModelProvider extends Live2DSettings {
   gsviTtsSpeechRate: number
   elevenlabsVoiceId: string
   cartesiaVoiceId: string
-  openaiTTSVoice: OpenAITTSVoice
-  openaiTTSModel: OpenAITTSModel
+  openaiTTSVoice: string
+  openaiTTSModel: string
   openaiTTSSpeed: number
   nijivoiceApiKey: string
   nijivoiceActorId: string
@@ -154,8 +166,6 @@ interface ModelProvider extends Live2DSettings {
 }
 
 interface Integrations {
-  difyUrl: string
-  difyConversationId: string
   youtubeMode: boolean
   youtubeLiveId: string
   youtubePlaying: boolean
@@ -168,6 +178,8 @@ interface Integrations {
 
 interface Character {
   characterName: string
+  characterAName: string
+  characterBName: string
   characterPreset1: string
   characterPreset2: string
   characterPreset3: string
@@ -182,8 +194,12 @@ interface Character {
   showAssistantText: boolean
   showCharacterName: boolean
   systemPrompt: string
+  systemPromptA: string
+  systemPromptB: string
   selectedVrmPath: string
   selectedLive2DPath: string
+  selectedLive2DPathA: string
+  selectedLive2DPathB: string
   fixedCharacterPosition: boolean
   characterPosition: {
     x: number
@@ -213,12 +229,6 @@ interface General {
   showControlPanel: boolean
   showQuickMenu: boolean
   externalLinkageMode: boolean
-  realtimeAPIMode: boolean
-  realtimeAPIModeContentType: RealtimeAPIModeContentType
-  realtimeAPIModeVoice: RealtimeAPIModeVoice | RealtimeAPIModeAzureVoice
-  audioMode: boolean
-  audioModeInputType: AudioModeInputType
-  audioModeVoice: OpenAITTSVoice
   slideMode: boolean
   messageReceiverEnabled: boolean
   clientId: string
@@ -234,15 +244,11 @@ interface General {
   presetQuestions: PresetQuestion[]
   showPresetQuestions: boolean
   speechRecognitionMode: SpeechRecognitionMode
-  whisperTranscriptionModel: WhisperTranscriptionModel
+  whisperTranscriptionModel: string
   initialSpeechTimeout: number
   chatLogWidth: number
   imageDisplayPosition: 'input' | 'side' | 'icon'
-  multiModalMode: 'ai-decide' | 'always' | 'never'
-  multiModalAiDecisionPrompt: string
-  enableMultiModal: boolean
   colorTheme: 'default' | 'cool' | 'mono' | 'ocean' | 'forest' | 'sunset'
-  customModel: boolean
 }
 
 interface ModelType {
@@ -275,7 +281,6 @@ const getInitialValuesFromEnv = (): SettingsState => ({
   mistralaiKey: '',
   perplexityKey: '',
   fireworksKey: '',
-  difyKey: '',
   deepseekKey: '',
   openrouterKey: '',
   lmstudioKey: '',
@@ -286,45 +291,96 @@ const getInitialValuesFromEnv = (): SettingsState => ({
   cartesiaApiKey: '',
   azureEndpoint: process.env.NEXT_PUBLIC_AZURE_ENDPOINT || '',
 
-  // Model Provider
-  selectAIService:
-    (process.env.NEXT_PUBLIC_SELECT_AI_SERVICE as AIService) || 'openai',
-  selectAIModel: migrateOpenAIModelName(
-    process.env.NEXT_PUBLIC_SELECT_AI_MODEL || 'gpt-4.1'
-  ),
-  localLlmUrl: process.env.NEXT_PUBLIC_LOCAL_LLM_URL || '',
   selectVoice: (process.env.NEXT_PUBLIC_SELECT_VOICE as AIVoice) || 'voicevox',
+  selectVoiceA: (process.env.NEXT_PUBLIC_SELECT_VOICE_A as AIVoice) || 'aivis_speech',
+  selectVoiceB: (process.env.NEXT_PUBLIC_SELECT_VOICE_B as AIVoice) || 'aivis_speech',
   koeiroParam: DEFAULT_PARAM,
   googleTtsType: process.env.NEXT_PUBLIC_GOOGLE_TTS_TYPE || '',
   voicevoxSpeaker: process.env.NEXT_PUBLIC_VOICEVOX_SPEAKER || '46',
+  voicevoxSpeakerA: process.env.NEXT_PUBLIC_VOICEVOX_SPEAKER_A || '46',
+  voicevoxSpeakerB: process.env.NEXT_PUBLIC_VOICEVOX_SPEAKER_B || '46',
   voicevoxSpeed:
     parseFloat(process.env.NEXT_PUBLIC_VOICEVOX_SPEED || '1.0') || 1.0,
+  voicevoxSpeedA:
+    parseFloat(process.env.NEXT_PUBLIC_VOICEVOX_SPEED_A || '1.0') || 1.0,
+  voicevoxSpeedB:
+    parseFloat(process.env.NEXT_PUBLIC_VOICEVOX_SPEED_B || '1.0') || 1.0,
   voicevoxPitch:
     parseFloat(process.env.NEXT_PUBLIC_VOICEVOX_PITCH || '0.0') || 0.0,
+  voicevoxPitchA:
+    parseFloat(process.env.NEXT_PUBLIC_VOICEVOX_PITCH_A || '0.0') || 0.0,
+  voicevoxPitchB:
+    parseFloat(process.env.NEXT_PUBLIC_VOICEVOX_PITCH_B || '0.0') || 0.0,
   voicevoxIntonation:
     parseFloat(process.env.NEXT_PUBLIC_VOICEVOX_INTONATION || '1.0') || 1.0,
-  voicevoxServerUrl: '',
+  voicevoxIntonationA:
+    parseFloat(process.env.NEXT_PUBLIC_VOICEVOX_INTONATION_A || '1.0') || 1.0,
+  voicevoxIntonationB:
+    parseFloat(process.env.NEXT_PUBLIC_VOICEVOX_INTONATION_B || '1.0') || 1.0,
+  voicevoxServerUrl: process.env.VOICEVOX_SERVER_URL || 'http://localhost:50021',
   aivisSpeechSpeaker:
     process.env.NEXT_PUBLIC_AIVIS_SPEECH_SPEAKER || '888753760',
+  aivisSpeechSpeakerA:
+    process.env.NEXT_PUBLIC_AIVIS_SPEECH_SPEAKER_A || '997152320',
+  aivisSpeechSpeakerB:
+    process.env.NEXT_PUBLIC_AIVIS_SPEECH_SPEAKER_B || '1132029248',
   aivisSpeechSpeed:
     parseFloat(process.env.NEXT_PUBLIC_AIVIS_SPEECH_SPEED || '1.0') || 1.0,
+  aivisSpeechSpeedA:
+    parseFloat(process.env.NEXT_PUBLIC_AIVIS_SPEECH_SPEED_A || '1.0') || 1.0,
+  aivisSpeechSpeedB:
+    parseFloat(process.env.NEXT_PUBLIC_AIVIS_SPEECH_SPEED_B || '1.0') || 1.0,
   aivisSpeechPitch:
     parseFloat(process.env.NEXT_PUBLIC_AIVIS_SPEECH_PITCH || '0.0') || 0.0,
+  aivisSpeechPitchA:
+    parseFloat(process.env.NEXT_PUBLIC_AIVIS_SPEECH_PITCH_A || '0.0') || 0.0,
+  aivisSpeechPitchB:
+    parseFloat(process.env.NEXT_PUBLIC_AIVIS_SPEECH_PITCH_B || '0.0') || 0.0,
   aivisSpeechIntonationScale:
     parseFloat(
       process.env.NEXT_PUBLIC_AIVIS_SPEECH_INTONATION_SCALE || '1.0'
     ) || 1.0,
-  aivisSpeechServerUrl: '',
+  aivisSpeechIntonationScaleA:
+    parseFloat(
+      process.env.NEXT_PUBLIC_AIVIS_SPEECH_INTONATION_SCALE_A || '1.0'
+    ) || 1.0,
+  aivisSpeechIntonationScaleB:
+    parseFloat(
+      process.env.NEXT_PUBLIC_AIVIS_SPEECH_INTONATION_SCALE_B || '1.0'
+    ) || 1.0,
+  aivisSpeechServerUrl: process.env.AIVIS_SPEECH_SERVER_URL || 'http://localhost:10101',
   aivisSpeechTempoDynamics:
     parseFloat(process.env.NEXT_PUBLIC_AIVIS_SPEECH_TEMPO_DYNAMICS || '1.0') ||
+    1.0,
+  aivisSpeechTempoDynamicsA:
+    parseFloat(process.env.NEXT_PUBLIC_AIVIS_SPEECH_TEMPO_DYNAMICS_A || '1.0') ||
+    1.0,
+  aivisSpeechTempoDynamicsB:
+    parseFloat(process.env.NEXT_PUBLIC_AIVIS_SPEECH_TEMPO_DYNAMICS_B || '1.0') ||
     1.0,
   aivisSpeechPrePhonemeLength:
     parseFloat(
       process.env.NEXT_PUBLIC_AIVIS_SPEECH_PRE_PHONEME_LENGTH || '0.1'
     ) || 0.1,
+  aivisSpeechPrePhonemeLengthA:
+    parseFloat(
+      process.env.NEXT_PUBLIC_AIVIS_SPEECH_PRE_PHONEME_LENGTH_A || '0.1'
+    ) || 0.1,
+  aivisSpeechPrePhonemeLengthB:
+    parseFloat(
+      process.env.NEXT_PUBLIC_AIVIS_SPEECH_PRE_PHONEME_LENGTH_B || '0.1'
+    ) || 0.1,
   aivisSpeechPostPhonemeLength:
     parseFloat(
       process.env.NEXT_PUBLIC_AIVIS_SPEECH_POST_PHONEME_LENGTH || '0.1'
+    ) || 0.1,
+  aivisSpeechPostPhonemeLengthA:
+    parseFloat(
+      process.env.NEXT_PUBLIC_AIVIS_SPEECH_POST_PHONEME_LENGTH_A || '0.1'
+    ) || 0.1,
+  aivisSpeechPostPhonemeLengthB:
+    parseFloat(
+      process.env.NEXT_PUBLIC_AIVIS_SPEECH_POST_PHONEME_LENGTH_B || '0.1'
     ) || 0.1,
   aivisCloudApiKey: '',
   aivisCloudModelUuid: process.env.NEXT_PUBLIC_AIVIS_CLOUD_MODEL_UUID || '',
@@ -370,10 +426,8 @@ const getInitialValuesFromEnv = (): SettingsState => ({
     parseFloat(process.env.NEXT_PUBLIC_GSVI_TTS_SPEECH_RATE || '1.0') || 1.0,
   elevenlabsVoiceId: process.env.NEXT_PUBLIC_ELEVENLABS_VOICE_ID || '',
   cartesiaVoiceId: process.env.NEXT_PUBLIC_CARTESIA_VOICE_ID || '',
-  openaiTTSVoice:
-    (process.env.NEXT_PUBLIC_OPENAI_TTS_VOICE as OpenAITTSVoice) || 'shimmer',
-  openaiTTSModel:
-    (process.env.NEXT_PUBLIC_OPENAI_TTS_MODEL as OpenAITTSModel) || 'tts-1',
+  openaiTTSVoice: process.env.NEXT_PUBLIC_OPENAI_TTS_VOICE || 'shimmer',
+  openaiTTSModel: process.env.NEXT_PUBLIC_OPENAI_TTS_MODEL || 'tts-1',
   openaiTTSSpeed:
     parseFloat(process.env.NEXT_PUBLIC_OPENAI_TTS_SPEED || '1.0') || 1.0,
   azureTTSKey: '',
@@ -388,8 +442,6 @@ const getInitialValuesFromEnv = (): SettingsState => ({
     process.env.NEXT_PUBLIC_CUSTOM_API_INCLUDE_MIME_TYPE !== 'false',
 
   // Integrations
-  difyUrl: '',
-  difyConversationId: '',
   youtubeMode: process.env.NEXT_PUBLIC_YOUTUBE_MODE === 'true' ? true : false,
   youtubeLiveId: process.env.NEXT_PUBLIC_YOUTUBE_LIVE_ID || '',
   youtubePlaying: false,
@@ -401,6 +453,8 @@ const getInitialValuesFromEnv = (): SettingsState => ({
 
   // Character
   characterName: process.env.NEXT_PUBLIC_CHARACTER_NAME || 'CHARACTER',
+  characterAName: process.env.NEXT_PUBLIC_CHARACTER_A_NAME || 'アイリス・ロゼッティ',
+  characterBName: process.env.NEXT_PUBLIC_CHARACTER_B_NAME || 'フィオナ・ロゼッティ',
   characterPreset1: process.env.NEXT_PUBLIC_CHARACTER_PRESET1 || SYSTEM_PROMPT,
   characterPreset2: process.env.NEXT_PUBLIC_CHARACTER_PRESET2 || SYSTEM_PROMPT,
   characterPreset3: process.env.NEXT_PUBLIC_CHARACTER_PRESET3 || SYSTEM_PROMPT,
@@ -420,11 +474,19 @@ const getInitialValuesFromEnv = (): SettingsState => ({
     process.env.NEXT_PUBLIC_SYSTEM_PROMPT ||
     process.env.NEXT_PUBLIC_CHARACTER_PRESET1 ||
     SYSTEM_PROMPT,
+  systemPromptA: process.env.NEXT_PUBLIC_SYSTEM_PROMPT_A || SYSTEM_PROMPT,
+  systemPromptB: process.env.NEXT_PUBLIC_SYSTEM_PROMPT_B || SYSTEM_PROMPT,
   selectedVrmPath:
     process.env.NEXT_PUBLIC_SELECTED_VRM_PATH || '/vrm/nikechan_v1.vrm',
   selectedLive2DPath:
     process.env.NEXT_PUBLIC_SELECTED_LIVE2D_PATH ||
     '/live2d/nike01/nike01.model3.json',
+  selectedLive2DPathA:
+    process.env.NEXT_PUBLIC_SELECTED_LIVE2D_PATH_A ||
+    '/live2d/iris/iris.model3.json',
+  selectedLive2DPathB:
+    process.env.NEXT_PUBLIC_SELECTED_LIVE2D_PATH_B ||
+    '/live2d/fiona/fiona.model3.json',
   fixedCharacterPosition: false,
   characterPosition: {
     x: 0,
@@ -448,26 +510,7 @@ const getInitialValuesFromEnv = (): SettingsState => ({
     process.env.NEXT_PUBLIC_INCLUDE_TIMESTAMP_IN_USER_MESSAGE === 'true',
   showControlPanel: process.env.NEXT_PUBLIC_SHOW_CONTROL_PANEL !== 'false',
   showQuickMenu: process.env.NEXT_PUBLIC_SHOW_QUICK_MENU === 'true',
-  externalLinkageMode: process.env.NEXT_PUBLIC_EXTERNAL_LINKAGE_MODE === 'true',
-  realtimeAPIMode:
-    (process.env.NEXT_PUBLIC_REALTIME_API_MODE === 'true' &&
-      ['openai', 'azure'].includes(
-        process.env.NEXT_PUBLIC_SELECT_AI_SERVICE as AIService
-      )) ||
-    false,
-  realtimeAPIModeContentType:
-    (process.env
-      .NEXT_PUBLIC_REALTIME_API_MODE_CONTENT_TYPE as RealtimeAPIModeContentType) ||
-    'input_text',
-  realtimeAPIModeVoice:
-    (process.env.NEXT_PUBLIC_REALTIME_API_MODE_VOICE as RealtimeAPIModeVoice) ||
-    'shimmer',
-  audioMode: process.env.NEXT_PUBLIC_AUDIO_MODE === 'true',
-  audioModeInputType:
-    (process.env.NEXT_PUBLIC_AUDIO_MODE_INPUT_TYPE as AudioModeInputType) ||
-    'input_text',
-  audioModeVoice:
-    (process.env.NEXT_PUBLIC_AUDIO_MODE_VOICE as OpenAITTSVoice) || 'shimmer',
+  externalLinkageMode: true,
   slideMode: process.env.NEXT_PUBLIC_SLIDE_MODE === 'true',
   messageReceiverEnabled:
     process.env.NEXT_PUBLIC_MESSAGE_RECEIVER_ENABLED === 'true',
@@ -501,10 +544,7 @@ const getInitialValuesFromEnv = (): SettingsState => ({
     (process.env
       .NEXT_PUBLIC_SPEECH_RECOGNITION_MODE as SpeechRecognitionMode) ||
     'browser',
-  whisperTranscriptionModel:
-    (process.env
-      .NEXT_PUBLIC_WHISPER_TRANSCRIPTION_MODEL as WhisperTranscriptionModel) ||
-    'whisper-1',
+  whisperTranscriptionModel: process.env.NEXT_PUBLIC_WHISPER_TRANSCRIPTION_MODEL || 'whisper-1',
   initialSpeechTimeout:
     parseFloat(process.env.NEXT_PUBLIC_INITIAL_SPEECH_TIMEOUT || '5.0') || 5.0,
   chatLogWidth:
@@ -516,17 +556,6 @@ const getInitialValuesFromEnv = (): SettingsState => ({
       ? (envPosition as 'input' | 'side' | 'icon')
       : 'input'
   })(),
-  multiModalMode: (() => {
-    const validModes = ['ai-decide', 'always', 'never'] as const
-    const envMode = process.env.NEXT_PUBLIC_MULTIMODAL_MODE
-    return validModes.includes(envMode as any)
-      ? (envMode as 'ai-decide' | 'always' | 'never')
-      : 'ai-decide'
-  })(),
-  multiModalAiDecisionPrompt:
-    process.env.NEXT_PUBLIC_MULTIMODAL_AI_DECISION_PROMPT ||
-    'あなたは画像がユーザーの質問や会話の文脈に関連するかどうかを判断するアシスタントです。直近の会話履歴とユーザーメッセージを考慮して、「はい」または「いいえ」のみで答えてください。',
-  enableMultiModal: process.env.NEXT_PUBLIC_ENABLE_MULTIMODAL !== 'false',
   colorTheme:
     (process.env.NEXT_PUBLIC_COLOR_THEME as
       | 'default'
@@ -535,9 +564,6 @@ const getInitialValuesFromEnv = (): SettingsState => ({
       | 'ocean'
       | 'forest'
       | 'sunset') || 'default',
-
-  // Custom model toggle
-  customModel: process.env.NEXT_PUBLIC_CUSTOM_MODEL === 'true',
 
   // NijiVoice settings
   nijivoiceApiKey: '',
@@ -575,14 +601,6 @@ const settingsStore = create<SettingsState>()(
   persist((set, get) => getInitialValuesFromEnv(), {
     name: 'aitube-kit-settings',
     onRehydrateStorage: () => (state) => {
-      // Migrate OpenAI model names when loading from storage
-      if (state && state.selectAIService === 'openai' && state.selectAIModel) {
-        const migratedModel = migrateOpenAIModelName(state.selectAIModel)
-        if (migratedModel !== state.selectAIModel) {
-          state.selectAIModel = migratedModel
-        }
-      }
-
       // Override with environment variables if the option is enabled
       if (
         state &&
@@ -603,7 +621,6 @@ const settingsStore = create<SettingsState>()(
       mistralaiKey: state.mistralaiKey,
       perplexityKey: state.perplexityKey,
       fireworksKey: state.fireworksKey,
-      difyKey: state.difyKey,
       deepseekKey: state.deepseekKey,
       openrouterKey: state.openrouterKey,
       lmstudioKey: state.lmstudioKey,
@@ -612,25 +629,46 @@ const settingsStore = create<SettingsState>()(
       youtubeApiKey: state.youtubeApiKey,
       elevenlabsApiKey: state.elevenlabsApiKey,
       azureEndpoint: state.azureEndpoint,
-      selectAIService: state.selectAIService,
-      selectAIModel: state.selectAIModel,
-      localLlmUrl: state.localLlmUrl,
       selectVoice: state.selectVoice,
+      selectVoiceA: state.selectVoiceA,
+      selectVoiceB: state.selectVoiceB,
       koeiroParam: state.koeiroParam,
       googleTtsType: state.googleTtsType,
       voicevoxSpeaker: state.voicevoxSpeaker,
+      voicevoxSpeakerA: state.voicevoxSpeakerA,
+      voicevoxSpeakerB: state.voicevoxSpeakerB,
       voicevoxSpeed: state.voicevoxSpeed,
+      voicevoxSpeedA: state.voicevoxSpeedA,
+      voicevoxSpeedB: state.voicevoxSpeedB,
       voicevoxPitch: state.voicevoxPitch,
+      voicevoxPitchA: state.voicevoxPitchA,
+      voicevoxPitchB: state.voicevoxPitchB,
       voicevoxIntonation: state.voicevoxIntonation,
+      voicevoxIntonationA: state.voicevoxIntonationA,
+      voicevoxIntonationB: state.voicevoxIntonationB,
       voicevoxServerUrl: state.voicevoxServerUrl,
       aivisSpeechSpeaker: state.aivisSpeechSpeaker,
+      aivisSpeechSpeakerA: state.aivisSpeechSpeakerA,
+      aivisSpeechSpeakerB: state.aivisSpeechSpeakerB,
       aivisSpeechSpeed: state.aivisSpeechSpeed,
+      aivisSpeechSpeedA: state.aivisSpeechSpeedA,
+      aivisSpeechSpeedB: state.aivisSpeechSpeedB,
       aivisSpeechPitch: state.aivisSpeechPitch,
+      aivisSpeechPitchA: state.aivisSpeechPitchA,
+      aivisSpeechPitchB: state.aivisSpeechPitchB,
       aivisSpeechIntonationScale: state.aivisSpeechIntonationScale,
+      aivisSpeechIntonationScaleA: state.aivisSpeechIntonationScaleA,
+      aivisSpeechIntonationScaleB: state.aivisSpeechIntonationScaleB,
       aivisSpeechServerUrl: state.aivisSpeechServerUrl,
       aivisSpeechTempoDynamics: state.aivisSpeechTempoDynamics,
+      aivisSpeechTempoDynamicsA: state.aivisSpeechTempoDynamicsA,
+      aivisSpeechTempoDynamicsB: state.aivisSpeechTempoDynamicsB,
       aivisSpeechPrePhonemeLength: state.aivisSpeechPrePhonemeLength,
+      aivisSpeechPrePhonemeLengthA: state.aivisSpeechPrePhonemeLengthA,
+      aivisSpeechPrePhonemeLengthB: state.aivisSpeechPrePhonemeLengthB,
       aivisSpeechPostPhonemeLength: state.aivisSpeechPostPhonemeLength,
+      aivisSpeechPostPhonemeLengthA: state.aivisSpeechPostPhonemeLengthA,
+      aivisSpeechPostPhonemeLengthB: state.aivisSpeechPostPhonemeLengthB,
       aivisCloudApiKey: state.aivisCloudApiKey,
       aivisCloudModelUuid: state.aivisCloudModelUuid,
       aivisCloudStyleId: state.aivisCloudStyleId,
@@ -654,10 +692,10 @@ const settingsStore = create<SettingsState>()(
       gsviTtsSpeechRate: state.gsviTtsSpeechRate,
       elevenlabsVoiceId: state.elevenlabsVoiceId,
       cartesiaVoiceId: state.cartesiaVoiceId,
-      difyUrl: state.difyUrl,
-      difyConversationId: state.difyConversationId,
       youtubeLiveId: state.youtubeLiveId,
       characterName: state.characterName,
+      characterAName: state.characterAName,
+      characterBName: state.characterBName,
       characterPreset1: state.characterPreset1,
       characterPreset2: state.characterPreset2,
       characterPreset3: state.characterPreset3,
@@ -672,16 +710,12 @@ const settingsStore = create<SettingsState>()(
       showAssistantText: state.showAssistantText,
       showCharacterName: state.showCharacterName,
       systemPrompt: state.systemPrompt,
+      systemPromptA: state.systemPromptA,
+      systemPromptB: state.systemPromptB,
       selectLanguage: state.selectLanguage,
       changeEnglishToJapanese: state.changeEnglishToJapanese,
       includeTimestampInUserMessage: state.includeTimestampInUserMessage,
       externalLinkageMode: state.externalLinkageMode,
-      realtimeAPIMode: state.realtimeAPIMode,
-      realtimeAPIModeContentType: state.realtimeAPIModeContentType,
-      realtimeAPIModeVoice: state.realtimeAPIModeVoice,
-      audioMode: state.audioMode,
-      audioModeInputType: state.audioModeInputType,
-      audioModeVoice: state.audioModeVoice,
       messageReceiverEnabled: state.messageReceiverEnabled,
       clientId: state.clientId,
       useSearchGrounding: state.useSearchGrounding,
@@ -692,6 +726,8 @@ const settingsStore = create<SettingsState>()(
       azureTTSEndpoint: state.azureTTSEndpoint,
       selectedVrmPath: state.selectedVrmPath,
       selectedLive2DPath: state.selectedLive2DPath,
+      selectedLive2DPathA: state.selectedLive2DPathA,
+      selectedLive2DPathB: state.selectedLive2DPathB,
       fixedCharacterPosition: state.fixedCharacterPosition,
       characterPosition: state.characterPosition,
       characterRotation: state.characterRotation,
@@ -736,11 +772,7 @@ const settingsStore = create<SettingsState>()(
       initialSpeechTimeout: state.initialSpeechTimeout,
       chatLogWidth: state.chatLogWidth,
       imageDisplayPosition: state.imageDisplayPosition,
-      multiModalMode: state.multiModalMode,
-      multiModalAiDecisionPrompt: state.multiModalAiDecisionPrompt,
-      enableMultiModal: state.enableMultiModal,
       colorTheme: state.colorTheme,
-      customModel: state.customModel,
     }),
   })
 )

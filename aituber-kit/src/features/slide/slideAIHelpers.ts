@@ -1,24 +1,10 @@
 import { getVercelAIChatResponse } from '@/features/chat/vercelAIChat'
-import settingsStore from '@/features/stores/settings'
-import { isMultiModalAvailable } from '@/features/constants/aiModels'
 
 export const judgeSlide = async (
   queryText: string,
   scripts: string,
   supplement: string
 ): Promise<string> => {
-  const ss = settingsStore.getState()
-  const aiService = ss.selectAIService
-  const aiModel = ss.selectAIModel
-  const enableMultiModal = ss.enableMultiModal
-  const multiModalMode = ss.multiModalMode
-
-  // 現在選択されているモデルがマルチモーダル使用可能かチェック
-  if (
-    !isMultiModalAvailable(aiService, aiModel, enableMultiModal, multiModalMode)
-  ) {
-    throw new Error('Selected model does not support multimodal features')
-  }
 
   const systemMessage = `
 You are an AI tasked with determining whether a user's comment is a question about a given script document and supplementary text, and if so, which page of the document is most relevant to the question. Follow these instructions carefully:

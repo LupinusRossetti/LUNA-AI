@@ -32,6 +32,8 @@ const Home = () => {
         : `url(${buildUrl(backgroundImageUrl)})`
   const messageReceiverEnabled = settingsStore((s) => s.messageReceiverEnabled)
   const modelType = settingsStore((s) => s.modelType)
+  // 掛け合いモード判定（暫定: 環境変数で判定）
+  const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
   const { t } = useTranslation()
   const characterPresets = [
     {
@@ -102,7 +104,18 @@ const Home = () => {
     <div className="h-[100svh] bg-cover" style={backgroundStyle}>
       <Meta />
       <Introduction />
-      {modelType === 'vrm' ? <VrmViewer /> : <Live2DViewer />}
+      {modelType === 'vrm' ? (
+        <VrmViewer />
+      ) : isDialogueMode ? (
+        // 掛け合いモード: 2体表示
+        <>
+          <Live2DViewer characterId="A" position="left" />
+          <Live2DViewer characterId="B" position="right" />
+        </>
+      ) : (
+        // 単体モード: 1体表示
+        <Live2DViewer />
+      )}
       <Form />
       <Menu />
       <ModalImage />

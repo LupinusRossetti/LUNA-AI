@@ -162,7 +162,6 @@ describe('handlers', () => {
       ;(homeStore.getState as jest.Mock).mockReturnValue(mockHomeStore)
       ;(settingsStore.getState as jest.Mock).mockReturnValue({
         externalLinkageMode: false,
-        realtimeAPIMode: false,
         slideMode: false,
         systemPrompt: 'テストプロンプト',
         includeTimestampInUserMessage: false,

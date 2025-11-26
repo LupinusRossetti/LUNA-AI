@@ -1,10 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useEffect, useCallback } from 'react'
 import settingsStore from '@/features/stores/settings'
 import homeStore from '@/features/stores/home'
 import { SpeakQueue } from '@/features/messages/speakQueue'
 import { useBrowserSpeechRecognition } from './useBrowserSpeechRecognition'
-import { useWhisperRecognition } from './useWhisperRecognition'
-import { useRealtimeVoiceAPI } from './useRealtimeVoiceAPI'
 
 type UseVoiceRecognitionProps = {
   onChatProcessStart: (text: string) => void
@@ -17,30 +15,12 @@ type UseVoiceRecognitionProps = {
 export const useVoiceRecognition = ({
   onChatProcessStart,
 }: UseVoiceRecognitionProps) => {
-  // ----- 設定の取得 -----
-  const speechRecognitionMode = settingsStore((s) => s.speechRecognitionMode)
-  const realtimeAPIMode = settingsStore((s) => s.realtimeAPIMode)
   const continuousMicListeningMode = settingsStore(
     (s) => s.continuousMicListeningMode
   )
 
-  // ----- 各モードのフックを使用 -----
-  // ブラウザ音声認識フック
   const browserSpeech = useBrowserSpeechRecognition(onChatProcessStart)
-
-  // Whisper音声認識フック
-  const whisperSpeech = useWhisperRecognition(onChatProcessStart)
-
-  // リアルタイムAPI処理フック
-  const realtimeAPI = useRealtimeVoiceAPI(onChatProcessStart)
-
-  // ----- 現在のモードに基づいて適切なフックを選択 -----
-  const currentHook =
-    speechRecognitionMode === 'browser'
-      ? realtimeAPIMode
-        ? realtimeAPI
-        : browserSpeech
-      : whisperSpeech
+  const currentHook = browserSpeech
 
   // ----- 音声停止 -----
   const handleStopSpeaking = useCallback(() => {
@@ -54,8 +34,6 @@ export const useVoiceRecognition = ({
     // 常時マイク入力モードがONで、現在マイク入力が行われていない場合のみ実行
     if (
       continuousMicListeningMode &&
-      // !currentHook.isListening &&
-      speechRecognitionMode === 'browser' &&
       !homeStore.getState().chatProcessing
     ) {
       console.log('🔄 AIの発話が完了しました。音声認識を自動的に再開します。')
@@ -63,14 +41,13 @@ export const useVoiceRecognition = ({
         currentHook.startListening()
       }, 300) // マイク起動までに少し遅延を入れる
     }
-  }, [continuousMicListeningMode, speechRecognitionMode, currentHook])
+  }, [continuousMicListeningMode, currentHook])
 
   // 常時マイク入力モードの変更を監視
   useEffect(() => {
     if (
       continuousMicListeningMode &&
       !currentHook.isListening &&
-      speechRecognitionMode === 'browser' &&
       !homeStore.getState().isSpeaking &&
       !homeStore.getState().chatProcessing
     ) {
@@ -78,28 +55,22 @@ export const useVoiceRecognition = ({
       console.log(
         '🎤 常時マイク入力モードがONになりました。音声認識を開始します。'
       )
-      currentHook.startListening()
-    }
-  }, [continuousMicListeningMode, speechRecognitionMode, currentHook])
+        currentHook.startListening()
+      }
+    }, [continuousMicListeningMode, currentHook])
 
   // 発話完了時のコールバックを登録
   useEffect(() => {
-    // ブラウザモードでのみコールバックを登録
-    if (speechRecognitionMode === 'browser') {
-      SpeakQueue.onSpeakCompletion(handleSpeakCompletion)
-
-      return () => {
-        // コンポーネントのアンマウント時にコールバックを削除
-        SpeakQueue.removeSpeakCompletionCallback(handleSpeakCompletion)
-      }
+    SpeakQueue.onSpeakCompletion(handleSpeakCompletion)
+    return () => {
+      SpeakQueue.removeSpeakCompletionCallback(handleSpeakCompletion)
     }
-  }, [speechRecognitionMode, handleSpeakCompletion])
+  }, [handleSpeakCompletion])
 
   // コンポーネントのマウント時に常時マイク入力モードがONの場合は自動的にマイク入力を開始
   useEffect(() => {
     if (
       continuousMicListeningMode &&
-      speechRecognitionMode === 'browser' &&
       !currentHook.isListening &&
       !homeStore.getState().isSpeaking &&
       !homeStore.getState().chatProcessing

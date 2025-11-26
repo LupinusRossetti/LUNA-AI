@@ -1,16 +1,6 @@
-import { Message } from '@/features/messages/messages'
 import { NextRequest } from 'next/server'
-import {
-  VercelAIService,
-  isVercelCloudAIService,
-  isVercelLocalAIService,
-} from '@/features/constants/settings'
-import { modifyMessages } from '../services/utils'
-import {
-  aiServiceConfig,
-  streamAiText,
-  generateAiText,
-} from '../services/vercelAi'
+import { streamText, generateText, CoreMessage } from 'ai'
+import { createGoogleGenerativeAI } from '@ai-sdk/google'
 import { googleSearchGroundingModels } from '@/features/constants/aiModels'
 
 export const config = {
@@ -34,74 +24,17 @@ export default async function handler(req: NextRequest) {
   const {
     messages,
     apiKey,
-    aiService,
-    model,
-    localLlmUrl,
-    azureEndpoint,
-    stream,
-    useSearchGrounding,
+    model = 'gemini-2.0-flash',
+    stream = false,
+    useSearchGrounding = true,
     dynamicRetrievalThreshold,
     temperature = 1.0,
     maxTokens = 4096,
   } = await req.json()
 
-  // APIキーの取得と検証
-  let aiApiKey = apiKey
-  if (isVercelCloudAIService(aiService)) {
-    if (!aiApiKey) {
-      // 環境変数から[サービス名]_KEY または [サービス名]_API_KEY の形式でAPIキーを取得
-      const servicePrefix = aiService.toUpperCase()
-      aiApiKey =
-        process.env[`${servicePrefix}_KEY`] ||
-        process.env[`${servicePrefix}_API_KEY`] ||
-        ''
-    }
-    if (!aiApiKey) {
-      return new Response(
-        JSON.stringify({ error: 'Empty API Key', errorCode: 'EmptyAPIKey' }),
-        {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
-    }
-  }
-
-  // ローカルLLMのURL検証
-  if (isVercelLocalAIService(aiService) && aiService !== 'custom-api') {
-    if (!localLlmUrl) {
-      return new Response(
-        JSON.stringify({
-          error: 'Empty Local LLM URL',
-          errorCode: 'EmptyLocalLLMURL',
-        }),
-        {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
-    }
-  }
-
-  // Azureのエンドポイントとデプロイメント名の処理
-  let modifiedAzureEndpoint = (
-    azureEndpoint ||
-    process.env.AZURE_ENDPOINT ||
-    ''
-  ).replace(/^https:\/\/|\.openai\.azure\.com.*$/g, '')
-  let modifiedAzureDeployment =
-    (azureEndpoint || process.env.AZURE_ENDPOINT || '').match(
-      /\/deployments\/([^\/]+)/
-    )?.[1] || ''
-  let modifiedModel = aiService === 'azure' ? modifiedAzureDeployment : model
-
-  // モデル名のバリデーション
-  if (isVercelCloudAIService(aiService) && !modifiedModel) {
+  if (!apiKey) {
     return new Response(
-      JSON.stringify({
-        error: 'Invalid AI service or model',
-        errorCode: 'AIInvalidProperty',
-      }),
+      JSON.stringify({ error: 'Empty API Key', errorCode: 'EmptyAPIKey' }),
       {
         status: 400,
         headers: { 'Content-Type': 'application/json' },
@@ -109,13 +42,11 @@ export default async function handler(req: NextRequest) {
     )
   }
 
-  // AIサービスのインスタンス作成
-  const getServiceInstance = aiServiceConfig[aiService as VercelAIService]
-  if (!getServiceInstance) {
+  if (!Array.isArray(messages)) {
     return new Response(
       JSON.stringify({
-        error: 'Invalid AI service',
-        errorCode: 'InvalidAIService',
+        error: 'Messages must be an array',
+        errorCode: 'InvalidMessages',
       }),
       {
         status: 400,
@@ -125,65 +56,61 @@ export default async function handler(req: NextRequest) {
   }
 
   try {
-    // AIサービスに適したパラメータを生成
-    const serviceParams =
-      aiService === 'azure'
-        ? { resourceName: modifiedAzureEndpoint, apiKey: aiApiKey }
-        : isVercelLocalAIService(aiService)
-          ? { baseURL: localLlmUrl }
-          : { apiKey: aiApiKey }
+    const aiInstance = createGoogleGenerativeAI({ apiKey })
+    const effectiveModel = model || 'gemini-2.0-flash'
+    const options: Record<string, any> = {}
 
-    // モデルインスタンスの作成
-    const modelInstance = getServiceInstance(serviceParams)
-
-    // メッセージの修正
-    const modifiedMessages = modifyMessages(aiService, model, messages)
-
-    // Google検索接地オプションの設定
-    const isUseSearchGrounding =
-      aiService === 'google' &&
+    if (
       useSearchGrounding &&
-      modifiedMessages.every((msg) => typeof msg.content === 'string')
-
-    let options = {}
-    if (isUseSearchGrounding) {
-      options = {
-        useSearchGrounding: true,
-        ...(dynamicRetrievalThreshold !== undefined &&
-          modifiedModel &&
-          googleSearchGroundingModels.includes(
-            modifiedModel as (typeof googleSearchGroundingModels)[number]
-          ) && {
-            dynamicRetrievalConfig: {
-              dynamicThreshold: dynamicRetrievalThreshold,
-            },
-          }),
+      googleSearchGroundingModels.includes(effectiveModel)
+    ) {
+      options.useSearchGrounding = true
+      if (dynamicRetrievalThreshold !== undefined) {
+        options.dynamicRetrievalConfig = {
+          dynamicThreshold: dynamicRetrievalThreshold,
+        }
       }
     }
 
-    console.log('options', options)
+    const callAI = async (opts: any) => {
+      if (stream) {
+        const response = await streamText({
+          model: aiInstance(effectiveModel, opts),
+          messages: messages as CoreMessage[],
+          temperature,
+          maxTokens,
+        })
+        return response.toDataStreamResponse()
+      }
 
-    // ストリーミングレスポンスまたは一括レスポンスの生成
-    if (stream) {
-      return await streamAiText({
-        model: modifiedModel,
-        modelInstance,
-        messages: modifiedMessages,
+      const result = await generateText({
+        model: aiInstance(effectiveModel, opts),
+        messages: messages as CoreMessage[],
         temperature,
         maxTokens,
-        options,
       })
-    } else {
-      return await generateAiText({
-        model: modifiedModel,
-        modelInstance,
-        messages: modifiedMessages,
-        temperature,
-        maxTokens,
+
+      return new Response(JSON.stringify({ text: result.text }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
       })
     }
+
+    try {
+      return await callAI(options)
+    } catch (firstError) {
+      // Search Grounding が有効だった場合のみ、無効にして再試行
+      if (options.useSearchGrounding) {
+        console.warn('Search Grounding failed, retrying without search...', firstError)
+        delete options.useSearchGrounding
+        delete options.dynamicRetrievalConfig
+        return await callAI(options)
+      }
+      throw firstError
+    }
+
   } catch (error) {
-    console.error('Error in AI API call:', error)
+    console.error('Error in Gemini API call:', error)
 
     return new Response(
       JSON.stringify({
@@ -197,3 +124,4 @@ export default async function handler(req: NextRequest) {
     )
   }
 }
+

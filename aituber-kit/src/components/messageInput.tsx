@@ -5,7 +5,6 @@ import Image from 'next/image'
 import homeStore from '@/features/stores/home'
 import settingsStore from '@/features/stores/settings'
 import slideStore from '@/features/stores/slide'
-import { isMultiModalAvailable } from '@/features/constants/aiModels'
 import { IconButton } from './iconButton'
 
 // ファイルバリデーションの設定
@@ -50,32 +49,19 @@ export const MessageInput = ({
   const chatProcessing = homeStore((s) => s.chatProcessing)
   const slidePlaying = slideStore((s) => s.isPlaying)
   const modalImage = homeStore((s) => s.modalImage)
-  const selectAIService = settingsStore((s) => s.selectAIService)
-  const selectAIModel = settingsStore((s) => s.selectAIModel)
   const imageDisplayPosition = settingsStore((s) => s.imageDisplayPosition)
-  const enableMultiModal = settingsStore((s) => s.enableMultiModal)
-  const multiModalMode = settingsStore((s) => s.multiModalMode)
-  const customModel = settingsStore((s) => s.customModel)
   const [rows, setRows] = useState(1)
   const [loadingDots, setLoadingDots] = useState('')
   const [showPermissionModal, setShowPermissionModal] = useState(false)
   const [fileError, setFileError] = useState<string>('')
   const [showImageActions, setShowImageActions] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const realtimeAPIMode = settingsStore((s) => s.realtimeAPIMode)
   const showSilenceProgressBar = settingsStore((s) => s.showSilenceProgressBar)
+  const isMultiModalSupported = true
 
   const { t } = useTranslation()
 
   // マルチモーダル対応かどうかを判定
-  const isMultiModalSupported = isMultiModalAvailable(
-    selectAIService,
-    selectAIModel,
-    enableMultiModal,
-    multiModalMode,
-    customModel
-  )
-
   // アイコン表示の条件
   const showIconDisplay = modalImage && imageDisplayPosition === 'icon'
 
@@ -494,7 +480,7 @@ export const MessageInput = ({
                 onKeyDown={handleKeyPress}
                 onDragOver={handleDragOver}
                 onDrop={handleDrop}
-                disabled={chatProcessing || slidePlaying || realtimeAPIMode}
+                disabled={chatProcessing || slidePlaying}
                 className="bg-white hover:bg-white-hover focus:bg-white disabled:bg-gray-100 disabled:text-primary-disabled rounded-2xl w-full px-4 text-theme-default font-bold disabled"
                 value={userMessage}
                 rows={rows}
@@ -511,7 +497,7 @@ export const MessageInput = ({
                 iconName="24/Send"
                 className="bg-secondary hover:bg-secondary-hover active:bg-secondary-press disabled:bg-secondary-disabled"
                 isProcessing={chatProcessing}
-                disabled={chatProcessing || !userMessage || realtimeAPIMode}
+                disabled={chatProcessing || !userMessage}
                 onClick={onClickSendButton}
               />
 

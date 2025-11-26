@@ -3,56 +3,21 @@ import settingsStore from '@/features/stores/settings'
 import { TextButton } from '../textButton'
 import Image from 'next/image'
 import { useEffect } from 'react'
-import { WhisperTranscriptionModel } from '@/features/constants/settings'
 import { Link } from '../link'
-import { getOpenAIWhisperModels } from '@/features/constants/aiModels'
 
 const SpeechInput = () => {
   const noSpeechTimeout = settingsStore((s) => s.noSpeechTimeout)
   const showSilenceProgressBar = settingsStore((s) => s.showSilenceProgressBar)
   const speechRecognitionMode = settingsStore((s) => s.speechRecognitionMode)
-  const whisperTranscriptionModel = settingsStore(
-    (s) => s.whisperTranscriptionModel
-  )
-  const openaiKey = settingsStore((s) => s.openaiKey)
   const continuousMicListeningMode = settingsStore(
     (s) => s.continuousMicListeningMode
   )
   const initialSpeechTimeout = settingsStore((s) => s.initialSpeechTimeout)
-  const realtimeAPIMode = settingsStore((s) => s.realtimeAPIMode)
-  const audioMode = settingsStore((s) => s.audioMode)
 
   const { t } = useTranslation()
 
-  // whisperモードの場合、自動的にnoSpeechTimeoutを0に、showSilenceProgressBarをfalseに設定
-  useEffect(() => {
-    if (speechRecognitionMode === 'whisper') {
-      settingsStore.setState({
-        initialSpeechTimeout: 0,
-        noSpeechTimeout: 0,
-        showSilenceProgressBar: false,
-        continuousMicListeningMode: false,
-      })
-    }
-  }, [speechRecognitionMode])
-
-  // realtimeAPIモードかaudioモードがオンの場合、強制的にbrowserモードに設定
-  useEffect(() => {
-    if (realtimeAPIMode || audioMode) {
-      settingsStore.setState({
-        speechRecognitionMode: 'browser',
-      })
-    }
-  }, [realtimeAPIMode, audioMode])
-
-  const whisperModels: { value: WhisperTranscriptionModel; label: string }[] =
-    getOpenAIWhisperModels().map((m) => ({
-      value: m as WhisperTranscriptionModel,
-      label: m,
-    }))
-
   // realtimeAPIモードかaudioモードがオンの場合はボタンを無効化
-  const isSpeechModeSwitchDisabled = realtimeAPIMode || audioMode
+  const isSpeechModeSwitchDisabled = false
 
   return (
     <div className="mb-10">
@@ -79,73 +44,12 @@ const SpeechInput = () => {
           </div>
         )}
         <div className="mt-2">
-          <TextButton
-            onClick={() =>
-              settingsStore.setState({
-                speechRecognitionMode:
-                  speechRecognitionMode === 'browser' ? 'whisper' : 'browser',
-              })
-            }
-            disabled={isSpeechModeSwitchDisabled}
-          >
-            {speechRecognitionMode === 'browser'
-              ? t('BrowserSpeechRecognition')
-              : t('WhisperSpeechRecognition')}
+          <TextButton disabled={isSpeechModeSwitchDisabled}>
+            {t('BrowserSpeechRecognition')}
           </TextButton>
         </div>
       </div>
-      {speechRecognitionMode === 'whisper' && (
-        <>
-          <div className="my-6">
-            <div className="my-4 text-xl font-bold">
-              {t('OpenAIAPIKeyLabel')}
-            </div>
-            <div className="my-4">
-              {t('APIKeyInstruction')}
-              <br />
-              <Link
-                url="https://platform.openai.com/account/api-keys"
-                label="OpenAI"
-              />
-            </div>
-            <input
-              className="text-ellipsis px-4 py-2 w-full md:w-1/2 bg-white hover:bg-white-hover rounded-lg"
-              type="text"
-              placeholder="sk-..."
-              value={openaiKey}
-              onChange={(e) =>
-                settingsStore.setState({ openaiKey: e.target.value })
-              }
-            />
-          </div>
-          <div className="mt-6">
-            <div className="mb-4 text-xl font-bold">
-              {t('WhisperTranscriptionModel')}
-            </div>
-            <div className="mb-4 whitespace-pre-line">
-              {t('WhisperTranscriptionModelInfo')}
-            </div>
-            <select
-              id="whisper-model-select"
-              className="px-4 py-2 bg-white hover:bg-white-hover rounded-lg w-full md:w-1/2"
-              value={whisperTranscriptionModel}
-              onChange={(e) =>
-                settingsStore.setState({
-                  whisperTranscriptionModel: e.target
-                    .value as WhisperTranscriptionModel,
-                })
-              }
-            >
-              {whisperModels.map((model) => (
-                <option key={model.value} value={model.value}>
-                  {model.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </>
-      )}
-      {speechRecognitionMode === 'browser' && !realtimeAPIMode && (
+      {speechRecognitionMode === 'browser' && (
         <>
           <div className="my-6">
             <div className="my-4 text-xl font-bold">

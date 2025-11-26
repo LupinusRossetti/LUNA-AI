@@ -3,21 +3,11 @@ import settingsStore from '@/features/stores/settings'
 import { AIVoice } from '@/features/constants/settings'
 import { wait } from '@/utils/wait'
 import { Talk } from './messages'
-import { synthesizeStyleBertVITS2Api } from './synthesizeStyleBertVITS2'
-import { synthesizeVoiceKoeiromapApi } from './synthesizeVoiceKoeiromap'
-import { synthesizeVoiceElevenlabsApi } from './synthesizeVoiceElevenlabs'
-import { synthesizeVoiceCartesiaApi } from './synthesizeVoiceCartesia'
-import { synthesizeVoiceGoogleApi } from './synthesizeVoiceGoogle'
 import { synthesizeVoiceVoicevoxApi } from './synthesizeVoiceVoicevox'
 import { synthesizeVoiceAivisSpeechApi } from './synthesizeVoiceAivisSpeech'
-import { synthesizeVoiceAivisCloudApi } from './synthesizeVoiceAivisCloudApi'
-import { synthesizeVoiceGSVIApi } from './synthesizeVoiceGSVI'
-import { synthesizeVoiceOpenAIApi } from './synthesizeVoiceOpenAI'
-import { synthesizeVoiceAzureOpenAIApi } from './synthesizeVoiceAzureOpenAI'
 import toastStore from '@/features/stores/toast'
 import i18next from 'i18next'
 import { SpeakQueue } from './speakQueue'
-import { synthesizeVoiceNijivoiceApi } from './synthesizeVoiceNijivoice'
 import { Live2DHandler } from './live2dHandler'
 import {
   asyncConvertEnglishToJapaneseReading,
@@ -73,18 +63,8 @@ async function synthesizeVoice(
 ): Promise<ArrayBuffer | null> {
   const ss = settingsStore.getState()
 
-  if (ss.audioMode) {
-    return null
-  }
-
   try {
     switch (voiceType) {
-      case 'koeiromap':
-        return await synthesizeVoiceKoeiromapApi(
-          talk,
-          ss.koeiromapKey,
-          ss.koeiroParam
-        )
       case 'voicevox':
         return await synthesizeVoiceVoicevoxApi(
           talk,
@@ -93,23 +73,6 @@ async function synthesizeVoice(
           ss.voicevoxPitch,
           ss.voicevoxIntonation,
           ss.voicevoxServerUrl
-        )
-      case 'google':
-        return await synthesizeVoiceGoogleApi(
-          talk,
-          ss.googleTtsType,
-          ss.selectLanguage
-        )
-      case 'stylebertvits2':
-        return await synthesizeStyleBertVITS2Api(
-          talk,
-          ss.stylebertvits2ServerUrl,
-          ss.stylebertvits2ApiKey,
-          ss.stylebertvits2ModelId,
-          ss.stylebertvits2Style,
-          ss.stylebertvits2SdpRatio,
-          ss.stylebertvits2Length,
-          ss.selectLanguage
         )
       case 'aivis_speech':
         return await synthesizeVoiceAivisSpeechApi(
@@ -122,68 +85,6 @@ async function synthesizeVoice(
           ss.aivisSpeechTempoDynamics,
           ss.aivisSpeechPrePhonemeLength,
           ss.aivisSpeechPostPhonemeLength
-        )
-      case 'aivis_cloud_api':
-        return await synthesizeVoiceAivisCloudApi(
-          talk,
-          ss.aivisCloudApiKey,
-          ss.aivisCloudModelUuid,
-          ss.aivisCloudStyleId,
-          ss.aivisCloudStyleName,
-          ss.aivisCloudUseStyleName,
-          ss.aivisCloudSpeed,
-          ss.aivisCloudPitch,
-          ss.aivisCloudIntonationScale,
-          ss.aivisCloudTempoDynamics,
-          ss.aivisCloudPrePhonemeLength,
-          ss.aivisCloudPostPhonemeLength
-        )
-      case 'gsvitts':
-        return await synthesizeVoiceGSVIApi(
-          talk,
-          ss.gsviTtsServerUrl,
-          ss.gsviTtsModelId,
-          ss.gsviTtsBatchSize,
-          ss.gsviTtsSpeechRate
-        )
-      case 'elevenlabs':
-        return await synthesizeVoiceElevenlabsApi(
-          talk,
-          ss.elevenlabsApiKey,
-          ss.elevenlabsVoiceId,
-          ss.selectLanguage
-        )
-      case 'cartesia':
-        return await synthesizeVoiceCartesiaApi(
-          talk,
-          ss.cartesiaApiKey,
-          ss.cartesiaVoiceId,
-          ss.selectLanguage
-        )
-      case 'openai':
-        return await synthesizeVoiceOpenAIApi(
-          talk,
-          ss.openaiKey,
-          ss.openaiTTSVoice,
-          ss.openaiTTSModel,
-          ss.openaiTTSSpeed
-        )
-      case 'azure':
-        return await synthesizeVoiceAzureOpenAIApi(
-          talk,
-          ss.azureTTSKey || ss.azureKey,
-          ss.azureTTSEndpoint || ss.azureEndpoint,
-          ss.openaiTTSVoice,
-          ss.openaiTTSSpeed
-        )
-      case 'nijivoice':
-        return await synthesizeVoiceNijivoiceApi(
-          talk,
-          ss.nijivoiceApiKey,
-          ss.nijivoiceActorId,
-          ss.nijivoiceSpeed,
-          ss.nijivoiceEmotionalLevel,
-          ss.nijivoiceSoundDuration
         )
       default:
         return null
@@ -378,16 +279,6 @@ export const testVoice = async (voiceType: AIVoice, customText?: string) => {
   const defaultMessages: Record<AIVoice, string> = {
     voicevox: 'ボイスボックスを使用します',
     aivis_speech: 'AivisSpeechを使用します',
-    aivis_cloud_api: 'Aivis Cloud APIを使用します',
-    koeiromap: 'コエイロマップを使用します',
-    google: 'Google Text-to-Speechを使用します',
-    stylebertvits2: 'StyleBertVITS2を使用します',
-    gsvitts: 'GSVI TTSを使用します',
-    elevenlabs: 'ElevenLabsを使用します',
-    cartesia: 'Cartesiaを使用します',
-    openai: 'OpenAI TTSを使用します',
-    azure: 'Azure TTSを使用します',
-    nijivoice: 'にじボイスを使用します',
   }
 
   const message = customText || defaultMessages[voiceType]

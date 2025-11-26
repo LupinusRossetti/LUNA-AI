@@ -119,9 +119,7 @@ const Based = () => {
               const ss = settingsStore.getState()
               const jaVoiceSelected =
                 ss.selectVoice === 'voicevox' ||
-                ss.selectVoice === 'koeiromap' ||
-                ss.selectVoice === 'aivis_speech' ||
-                ss.selectVoice === 'nijivoice'
+                ss.selectVoice === 'aivis_speech'
 
               switch (newLanguage) {
                 case 'ja':
@@ -132,9 +130,9 @@ const Based = () => {
                   // 日本語以外の言語はすべて同じ処理
                   settingsStore.setState({ selectLanguage: newLanguage })
 
-                  // 日本語専用の音声が選択されている場合は、googleに変更
+                  // 日本語専用の音声が選択されている場合は、voicevoxに変更
                   if (jaVoiceSelected) {
-                    settingsStore.setState({ selectVoice: 'google' })
+                    settingsStore.setState({ selectVoice: 'voicevox' })
                   }
 
                   i18n.changeLanguage(newLanguage)
