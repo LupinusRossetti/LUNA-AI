@@ -8,6 +8,30 @@ import { Meta } from '@/components/meta'
 import ModalImage from '@/components/modalImage'
 import VrmViewer from '@/components/vrmViewer'
 import Live2DViewer from '@/components/live2DViewer'
+import dynamic from 'next/dynamic'
+
+const Live2DManager = dynamic(
+  () => import('@/components/Live2DManager').then((mod) => {
+    console.log('Live2DManager module loaded', { 
+      hasLive2DManager: !!mod.Live2DManager,
+      moduleKeys: Object.keys(mod)
+    })
+    // named exportをdefault exportに変換
+    const Component = mod.Live2DManager
+    Component.displayName = 'Live2DManager'
+    return Component
+  }).catch((err) => {
+    console.error('Failed to load Live2DManager:', err)
+    throw err
+  }),
+  {
+    ssr: false,
+    loading: () => {
+      console.log('Live2DManager loading...')
+      return null
+    },
+  }
+)
 import { Toasts } from '@/components/toasts'
 import { WebSocketManager } from '@/components/websocketManager'
 import CharacterPresetMenu from '@/components/characterPresetMenu'
@@ -109,11 +133,11 @@ const Home = () => {
       {modelType === 'vrm' ? (
         <VrmViewer />
       ) : isDialogueMode ? (
-        // 掛け合いモード: 2体表示
-        <>
-          <Live2DViewer characterId="A" modelPath={selectedLive2DPathA} position="left" />
-          <Live2DViewer characterId="B" modelPath={selectedLive2DPathB} position="right" />
-        </>
+        // 掛け合いモード: シングルApplicationで2体表示（WebGLコンテキストを1つに統一）
+        <Live2DManager 
+          characterAPath={selectedLive2DPathA} 
+          characterBPath={selectedLive2DPathB} 
+        />
       ) : (
         // 単体モード: 1体表示
         <Live2DViewer characterId="A" modelPath={selectedLive2DPathA} />

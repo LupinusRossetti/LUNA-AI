@@ -1,5 +1,5 @@
 import { Application, Ticker, DisplayObject } from 'pixi.js'
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useLayoutEffect, useMemo } from 'react'
 import { Live2DModel } from 'pixi-live2d-display-lipsyncpatch/cubism4'
 import homeStore from '@/features/stores/home'
 import settingsStore from '@/features/stores/settings'
@@ -41,13 +41,33 @@ const setModelPosition = (
     // Default positioning
     const scale = 0.3
     model.scale.set(scale)
-    // 掛け合いモード: 左右に配置
+    // 掛け合いモード: 左右に配置（画面全体を基準に）
     if (isDialogueMode && characterId) {
-      model.x = characterId === 'A' ? app.renderer.width / 4 : app.renderer.width * 3 / 4
+      // 画面全体のサイズを基準に配置
+      const screenWidth = window.innerWidth
+      const screenHeight = window.innerHeight
+      
+      // セリフ枠とチャット欄の高さを考慮して上にずらす
+      const chatContainerHeight = 150
+      const chatGap = 8
+      const chatTotalHeight = chatContainerHeight * 2 + chatGap + 10 // チャット欄2つ + 間隔 + 余白
+      const assistantTextHeight = 100 // セリフ枠の高さ（概算）
+      const offsetY = (chatTotalHeight + assistantTextHeight) / 2 // セリフ枠とチャット欄の分だけ上にずらす
+      
+      if (characterId === 'A') {
+        // キャラA（アイリス）: 画面中央より少し左に配置、セリフ枠にかぶらないように上にずらす
+        model.x = screenWidth * 0.35 // 画面の35%の位置（中央より左）
+        model.y = screenHeight * 0.5 - offsetY // 画面の中央より上に配置
+      } else {
+        // キャラB（フィオナ）: 画面中央より少し右に配置、セリフ枠にかぶらないように上にずらす
+        model.x = screenWidth * 0.65 // 画面の65%の位置（中央より右）
+        model.y = screenHeight * 0.5 - offsetY // 画面の中央より上に配置
+      }
     } else {
+      // 単体モード: 画面中央に配置
       model.x = app.renderer.width / 2
+      model.y = app.renderer.height / 2
     }
-    model.y = app.renderer.height / 2
   }
 }
 
@@ -68,15 +88,49 @@ const Live2DComponent = ({ characterId, modelPath }: Live2DComponentProps = {} a
   const [isDragging, setIsDragging] = useState(false)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   
-  // キャラクターIDに応じてモデルパスを選択
+  // キャラクターIDに応じてモデルパスを選択（useMemoでメモ化して不要な再計算を防ぐ）
   const defaultLive2DPath = settingsStore((state) => state.selectedLive2DPath)
   const live2DPathA = settingsStore((state) => state.selectedLive2DPathA)
   const live2DPathB = settingsStore((state) => state.selectedLive2DPathB)
   
-  const selectedLive2DPath = modelPath || 
-    (characterId === 'A' ? live2DPathA : 
-     characterId === 'B' ? live2DPathB : 
-     defaultLive2DPath)
+  // デバッグ用：各値の変更を追跡
+  const prevValuesRef = useRef({ modelPath, characterId, live2DPathA, live2DPathB, defaultLive2DPath })
+  useEffect(() => {
+    const changed = Object.keys(prevValuesRef.current).some(key => {
+      return prevValuesRef.current[key as keyof typeof prevValuesRef.current] !== 
+             { modelPath, characterId, live2DPathA, live2DPathB, defaultLive2DPath }[key as keyof typeof prevValuesRef.current]
+    })
+    if (changed) {
+      console.log('Live2DComponent selectedLive2DPath dependencies changed', {
+        characterId,
+        prev: prevValuesRef.current,
+        current: { modelPath, characterId, live2DPathA, live2DPathB, defaultLive2DPath }
+      })
+      prevValuesRef.current = { modelPath, characterId, live2DPathA, live2DPathB, defaultLive2DPath }
+    }
+  }, [modelPath, characterId, live2DPathA, live2DPathB, defaultLive2DPath])
+  
+  const selectedLive2DPath = useMemo(() => {
+    // modelPathが指定されている場合はそれを優先
+    if (modelPath && modelPath.trim() !== '') {
+      return modelPath
+    }
+    
+    // characterIdに応じてパスを選択
+    let path: string | undefined
+    if (characterId === 'A') {
+      path = live2DPathA
+    } else if (characterId === 'B') {
+      path = live2DPathB
+    } else {
+      path = defaultLive2DPath
+    }
+    
+    // パスが空文字列やundefinedの場合はundefinedを返す
+    const result = (path && path.trim() !== '') ? path : undefined
+    console.log('Live2DComponent selectedLive2DPath calculated', { characterId, modelPath, path, result })
+    return result
+  }, [modelPath, characterId, live2DPathA, live2DPathB, defaultLive2DPath])
   // ピンチジェスチャー用の状態
   const [pinchDistance, setPinchDistance] = useState<number | null>(null)
   const [initialScale, setInitialScale] = useState<number | null>(null)
@@ -173,9 +227,119 @@ const Live2DComponent = ({ characterId, modelPath }: Live2DComponentProps = {} a
     }
   }, [model, app, fixPosition, unfixPosition, resetPosition])
 
-  useEffect(() => {
-    initApp()
+  const initApp = useCallback(() => {
+    if (!canvasContainerRef.current) return
+
+    // コンテナの実際のサイズを取得（親要素のサイズを使用）
+    const container = canvasContainerRef.current.parentElement
+    let containerWidth = container?.clientWidth || canvasContainerRef.current.clientWidth || window.innerWidth / 2
+    let containerHeight = container?.clientHeight || canvasContainerRef.current.clientHeight || window.innerHeight
+    
+    // サイズが0または未定義の場合はデフォルト値を使用
+    if (!containerWidth || containerWidth <= 0) {
+      containerWidth = window.innerWidth / 2
+    }
+    if (!containerHeight || containerHeight <= 0) {
+      containerHeight = window.innerHeight
+    }
+    
+    // 最小値を確保（PixiJSの要件）
+    containerWidth = Math.max(containerWidth, 1)
+    containerHeight = Math.max(containerHeight, 1)
+
+    try {
+      // 各Applicationインスタンスに独立したWebGLコンテキストを割り当てる
+      // 各canvas要素は自動的に独立したWebGLコンテキストを持つ
+      // PixiJSのApplicationは各canvasに対して自動的に独立したWebGLコンテキストを作成する
+      const newApp = new Application({
+        width: containerWidth,
+        height: containerHeight,
+        view: canvasContainerRef.current,
+        backgroundAlpha: 0,
+        antialias: true,
+        autoDensity: true, // 高DPIディスプレイ対応
+        // checkMaxIfStatementsInShader のエラーを回避するため、明示的に設定
+        resolution: window.devicePixelRatio || 1,
+        // WebGLコンテキストの設定を明示的に指定
+        powerPreference: 'high-performance',
+        preserveDrawingBuffer: false,
+      })
+
+      console.log('PixiJS Application created', { 
+        characterId, 
+        width: containerWidth, 
+        height: containerHeight,
+        canvas: canvasContainerRef.current,
+        webglContext: newApp.renderer.gl
+      })
+
+      setApp(newApp)
+    } catch (error) {
+      console.error('Failed to initialize PixiJS Application:', error)
+      // エラーが発生した場合は、デフォルトサイズで再試行
+      setTimeout(() => {
+        if (canvasContainerRef.current) {
+          try {
+            const fallbackApp = new Application({
+              width: 800,
+              height: 600,
+              view: canvasContainerRef.current,
+              backgroundAlpha: 0,
+              antialias: true,
+              autoDensity: true,
+              resolution: window.devicePixelRatio || 1,
+            })
+            setApp(fallbackApp)
+          } catch (fallbackError) {
+            console.error('Failed to initialize fallback PixiJS Application:', fallbackError)
+          }
+        }
+      }, 100)
+    }
+  }, [])
+
+  // コンテナのサイズが確定してからアプリを初期化
+  useLayoutEffect(() => {
+    // コンテナのサイズが確定するまで待つ
+    let retryCount = 0
+    const MAX_RETRIES = 10
+    
+    const checkAndInit = () => {
+      if (!canvasContainerRef.current) {
+        if (retryCount < MAX_RETRIES) {
+          retryCount++
+          requestAnimationFrame(checkAndInit)
+        }
+        return
+      }
+      
+      const container = canvasContainerRef.current.parentElement
+      const containerWidth = container?.clientWidth || canvasContainerRef.current.clientWidth || window.innerWidth / 2
+      const containerHeight = container?.clientHeight || canvasContainerRef.current.clientHeight || window.innerHeight
+      
+      // サイズが0の場合は少し待ってから再試行
+      if (containerWidth <= 0 || containerHeight <= 0) {
+        if (retryCount < MAX_RETRIES) {
+          retryCount++
+          requestAnimationFrame(checkAndInit)
+        } else {
+          // 最大リトライ回数に達した場合は、デフォルトサイズで初期化
+          console.warn('Container size is still 0 after retries, using default size')
+          initApp()
+        }
+        return
+      }
+      
+      initApp()
+    }
+    
+    // 初回実行を少し遅らせる（DOMが完全にレンダリングされるまで待つ）
+    const timeoutId = setTimeout(() => {
+      checkAndInit()
+    }, 100)
+    
     return () => {
+      clearTimeout(timeoutId)
       if (modelRef.current) {
         modelRef.current.destroy()
         modelRef.current = null
@@ -184,47 +348,93 @@ const Live2DComponent = ({ characterId, modelPath }: Live2DComponentProps = {} a
         app.destroy(true)
       }
     }
-  }, [])
+  }, [initApp])
 
+  // 現在読み込まれているモデルパスを追跡
+  const loadedModelPathRef = useRef<string | null>(null)
+  const isLoadingRef = useRef<boolean>(false)
+  
   useEffect(() => {
-    if (app && selectedLive2DPath) {
-      // 既存のモデルがある場合は先に削除
-      if (modelRef.current) {
+    console.log('Live2DComponent useEffect triggered', { 
+      characterId, 
+      hasApp: !!app, 
+      selectedLive2DPath, 
+      hasModel: !!modelRef.current,
+      loadedPath: loadedModelPathRef.current,
+      isLoading: isLoadingRef.current
+    })
+    
+    // selectedLive2DPathが空文字列やundefinedの場合はスキップ
+    if (!app || !selectedLive2DPath || selectedLive2DPath.trim() === '') {
+      console.log('Skipping: no app or invalid path', { characterId, hasApp: !!app, selectedLive2DPath })
+      return
+    }
+    
+    // 既に同じモデルが読み込まれている場合はスキップ
+    if (modelRef.current && loadedModelPathRef.current === selectedLive2DPath) {
+      console.log('Skipping: same model already loaded', { characterId, selectedLive2DPath })
+      return
+    }
+    
+    // 読み込み中の場合はスキップ
+    if (isLoadingRef.current) {
+      console.log('Skipping: model is already loading', { characterId, selectedLive2DPath })
+      return
+    }
+    
+    // 既存のモデルがある場合は先に削除
+    if (modelRef.current) {
+      console.log('Destroying existing model', { characterId, loadedPath: loadedModelPathRef.current })
+      try {
         app.stage.removeChild(modelRef.current as unknown as DisplayObject)
         modelRef.current.destroy()
-        modelRef.current = null
-        setModel(null)
+      } catch (error) {
+        console.error('Error destroying model:', error)
       }
-      // ステージをクリア
-      app.stage.removeChildren()
-      // 新しいモデルを読み込む
-      loadLive2DModel(app, selectedLive2DPath)
+      modelRef.current = null
+      setModel(null)
+      loadedModelPathRef.current = null
     }
-  }, [app, selectedLive2DPath])
-
-  const initApp = () => {
-    if (!canvasContainerRef.current) return
-
-    const app = new Application({
-      width: canvasContainerRef.current.clientWidth || window.innerWidth,
-      height: canvasContainerRef.current.clientHeight || window.innerHeight,
-      view: canvasContainerRef.current,
-      backgroundAlpha: 0,
-      antialias: true,
-      resizeTo: canvasContainerRef.current, // 親要素のサイズに自動リサイズ
-    })
-
-    setApp(app)
-  }
+    
+    // ステージをクリア
+    try {
+      app.stage.removeChildren()
+    } catch (error) {
+      console.error('Error clearing stage:', error)
+    }
+    
+    // 新しいモデルを読み込む
+    isLoadingRef.current = true
+    loadedModelPathRef.current = selectedLive2DPath
+    console.log('Starting to load Live2D model', { characterId, selectedLive2DPath })
+    loadLive2DModel(app, selectedLive2DPath)
+      .finally(() => {
+        isLoadingRef.current = false
+        console.log('Model loading finished', { characterId, selectedLive2DPath })
+      })
+  }, [app, selectedLive2DPath, characterId])
 
   const loadLive2DModel = async (
     currentApp: Application,
     modelPath: string
   ) => {
-    if (!canvasContainerRef.current) return
+    if (!canvasContainerRef.current) {
+      console.error('Canvas container not found')
+      return
+    }
+    
+    // 読み込み中のパスが変更された場合はスキップ
+    if (loadedModelPathRef.current !== modelPath) {
+      console.log('Model path changed during load, skipping...', { characterId, modelPath, loadedPath: loadedModelPathRef.current })
+      return
+    }
+    
     const hs = homeStore.getState()
 
     try {
+      console.log('Creating Live2D model...', { characterId, modelPath })
+      // pixi-live2d-displayはTicker.sharedを要求するため、Ticker.sharedを使用
+      // WebGLコンテキストの問題は、各Applicationインスタンスが独立したcanvasを持つことで解決される
       const newModel = await Live2DModel.fromSync(modelPath, {
         ticker: Ticker.shared,
         autoHitTest: false,
@@ -232,10 +442,29 @@ const Live2DComponent = ({ characterId, modelPath }: Live2DComponentProps = {} a
       })
 
       await new Promise((resolve, reject) => {
-        newModel.once('load', () => resolve(true))
-        newModel.once('error', (e) => reject(e))
+        newModel.once('load', () => {
+          console.log('Live2D model loaded', { characterId, modelPath })
+          resolve(true)
+        })
+        newModel.once('error', (e) => {
+          console.error('Live2D model load error', { characterId, modelPath, error: e })
+          reject(e)
+        })
         setTimeout(() => reject(new Error('Model load timeout')), 10000)
       })
+
+      // 読み込み中のパスが変更された場合はスキップ
+      if (loadedModelPathRef.current !== modelPath) {
+        console.log('Model path changed after load, skipping add...', { characterId, modelPath, loadedPath: loadedModelPathRef.current })
+        newModel.destroy()
+        return
+      }
+
+      // モデルが既にステージに追加されている場合はスキップ
+      if (currentApp.stage.children.includes(newModel as unknown as DisplayObject)) {
+        console.log('Model already in stage, skipping add...', { characterId, modelPath })
+        return
+      }
 
       currentApp.stage.addChild(newModel as unknown as DisplayObject)
       newModel.anchor.set(0.5, 0.5)
@@ -243,11 +472,27 @@ const Live2DComponent = ({ characterId, modelPath }: Live2DComponentProps = {} a
 
       modelRef.current = newModel
       setModel(newModel)
+      loadedModelPathRef.current = modelPath
+      console.log('Live2D model added to stage', { characterId, modelPath, stageChildren: currentApp.stage.children.length })
+      
+      // モデルが削除されないように保護（定期的にチェック）
+      const checkModelInterval = setInterval(() => {
+        if (modelRef.current && !currentApp.stage.children.includes(modelRef.current as unknown as DisplayObject)) {
+          console.warn('Model was removed from stage, re-adding...', { characterId, modelPath })
+          currentApp.stage.addChild(modelRef.current as unknown as DisplayObject)
+        }
+      }, 1000)
+      
+      // クリーンアップ時にインターバルを削除
+      setTimeout(() => clearInterval(checkModelInterval), 60000) // 60秒後に停止
+      
       // Don't set live2dViewer here, it will be set in the useEffect with position controls
 
-      await Live2DHandler.resetToIdle()
+      await Live2DHandler.resetToIdle(characterId)
     } catch (error) {
-      console.error('Failed to load Live2D model:', error)
+      console.error('Failed to load Live2D model:', error, { characterId, modelPath })
+      loadedModelPathRef.current = null
+      isLoadingRef.current = false
     }
   }
 
@@ -282,16 +527,28 @@ const Live2DComponent = ({ characterId, modelPath }: Live2DComponentProps = {} a
 
     const handlePointerMove = (event: PointerEvent) => {
       if (isDragging && app) {
-        // 画面全体にドラッグ可能（会話ログやセリフ枠にかぶらないように）
-        const minX = -app.renderer.width / 2
-        const maxX = app.renderer.width * 1.5
-        const minY = -app.renderer.height / 2
-        const maxY = app.renderer.height * 1.5
+        // 画面全体にドラッグ可能（境界線なし、自由に移動可能）
+        // 画面サイズを基準に、画面内で自由に移動できるようにする
+        const canvasWidth = app.renderer.width
+        const canvasHeight = app.renderer.height
+        
+        // 画面全体のサイズを取得（掛け合いモードでは画面全体）
+        const screenWidth = window.innerWidth
+        const screenHeight = window.innerHeight
+        
+        // モデルのサイズを考慮した移動範囲（画面内に収まるように）
+        const modelWidth = model.width * model.scale.x
+        const modelHeight = model.height * model.scale.y
+        
+        const minX = -modelWidth / 2
+        const maxX = screenWidth + modelWidth / 2
+        const minY = -modelHeight / 2
+        const maxY = screenHeight + modelHeight / 2
         
         let newX = event.clientX - dragOffset.x
         let newY = event.clientY - dragOffset.y
         
-        // 範囲内に制限（実際には制限を緩くして画面全体に移動可能にする）
+        // 画面内に制限（ただしモデルが少しはみ出ても見えるように）
         newX = Math.max(minX, Math.min(maxX, newX))
         newY = Math.max(minY, Math.min(maxY, newY))
         
@@ -429,26 +686,35 @@ const Live2DComponent = ({ characterId, modelPath }: Live2DComponentProps = {} a
 
     const onResize = debounce(() => {
       if (!canvasContainerRef.current) return
+      
+      // 親要素のサイズを取得
+      const container = canvasContainerRef.current.parentElement
+      const newWidth = container?.clientWidth || canvasContainerRef.current.clientWidth || window.innerWidth / 2
+      const newHeight = container?.clientHeight || canvasContainerRef.current.clientHeight || window.innerHeight
 
-      app.renderer.resize(
-        canvasContainerRef.current.clientWidth,
-        canvasContainerRef.current.clientHeight
-      )
+      app.renderer.resize(newWidth, newHeight)
 
       setModelPosition(app, model, characterId)
     }, 250)
 
     window.addEventListener('resize', onResize)
+    
+    // 初回実行（マウント時に正しいサイズを設定）
+    onResize()
 
     return () => {
       window.removeEventListener('resize', onResize)
       onResize.cancel() // クリーンアップ時にデバウンスをキャンセル
     }
-  }, [app, model])
+  }, [app, model, characterId])
 
+  // 各キャラクターに一意のIDを設定して、canvas要素を区別する
+  const canvasId = `live2d-canvas-${characterId || 'default'}-${Date.now()}`
+  
   return (
-    <div className="w-screen h-screen">
+    <div className="w-full h-full">
       <canvas
+        id={canvasId}
         ref={canvasContainerRef}
         className="w-full h-full"
         onContextMenu={(e) => e.preventDefault()}

@@ -554,7 +554,7 @@ const getInitialValuesFromEnv = (): SettingsState => ({
     process.env.NEXT_PUBLIC_INCLUDE_TIMESTAMP_IN_USER_MESSAGE === 'true',
   showControlPanel: process.env.NEXT_PUBLIC_SHOW_CONTROL_PANEL !== 'false',
   showQuickMenu: process.env.NEXT_PUBLIC_SHOW_QUICK_MENU === 'true',
-  externalLinkageMode: true,
+  externalLinkageMode: process.env.NEXT_PUBLIC_EXTERNAL_LINKAGE_MODE === 'true',
   slideMode: process.env.NEXT_PUBLIC_SLIDE_MODE === 'true',
   messageReceiverEnabled:
     process.env.NEXT_PUBLIC_MESSAGE_RECEIVER_ENABLED === 'true',

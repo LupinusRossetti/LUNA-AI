@@ -7,9 +7,12 @@ import { useVoiceRecognition } from '@/hooks/useVoiceRecognition'
 // 無音検出用の状態と変数を追加
 type Props = {
   onChatProcessStart: (text: string) => void
+  onResetPosition?: () => void // 元の位置に戻すボタン（掛け合いモード用）
+  characterName?: string // キャラクター名（掛け合いモード用）
+  containerWidth?: number // コンテナの幅（掛け合いモード用）
 }
 
-export const MessageInputContainer = ({ onChatProcessStart }: Props) => {
+export const MessageInputContainer = ({ onChatProcessStart, onResetPosition, characterName, containerWidth }: Props) => {
   const isSpeaking = homeStore((s) => s.isSpeaking)
   const continuousMicListeningMode = settingsStore(
     (s) => s.continuousMicListeningMode
@@ -54,6 +57,9 @@ export const MessageInputContainer = ({ onChatProcessStart }: Props) => {
         continuousMicListeningMode && speechRecognitionMode === 'browser'
       }
       onToggleContinuousMode={toggleContinuousMode}
+      onResetPosition={onResetPosition}
+      characterName={characterName}
+      containerWidth={containerWidth}
     />
   )
 }

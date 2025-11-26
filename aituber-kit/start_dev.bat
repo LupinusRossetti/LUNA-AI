@@ -2,11 +2,14 @@
 chcp 65001 >nul
 
 echo ============================================
-echo      AITuberKit - Simple Dev Mode
+echo      AITuberKit - Simple Dev Mode (Duet)
 echo ============================================
 echo.
 
 cd /d %~dp0
+
+echo Setting DIALOGUE_MODE=true...
+set NEXT_PUBLIC_DIALOGUE_MODE=true
 
 echo Starting Next.js...
 echo.

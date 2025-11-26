@@ -46,8 +46,22 @@ export const AssistantText = ({ message, role }: AssistantTextProps) => {
   // ▼ 感情タグ除去
   const cleaned = message.replace(/\[([a-zA-Z]*?)\]/g, '')
 
+  // 同時表示モードの場合は、会話ログの右側に表示するため位置を調整
+  const showSimultaneousDisplay = settingsStore((s) => s.showSimultaneousDisplay || false)
+  const chatLogWidth = settingsStore((s) => s.chatLogWidth || 0)
+  
+  // セリフ枠のbottomは10rem
   return (
-    <div className={`absolute bottom-0 left-0 mb-[120px] w-full z-10`}>
+    <div 
+      className={`absolute bottom-0 left-0 w-full z-10`}
+      style={{
+        bottom: '10rem', // 10rem
+        ...(showSimultaneousDisplay ? { 
+          left: `${chatLogWidth}px`,
+          width: `calc(100% - ${chatLogWidth}px)`
+        } : {})
+      }}
+    >
       <div className="mx-auto max-w-4xl w-full p-4 animate-scalePop">
         <div
           className="rounded-lg font-kei"

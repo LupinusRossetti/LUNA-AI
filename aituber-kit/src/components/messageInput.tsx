@@ -33,6 +33,9 @@ type Props = {
   silenceTimeoutRemaining: number | null
   continuousMicListeningMode: boolean
   onToggleContinuousMode: (event: React.MouseEvent<HTMLButtonElement>) => void
+  onResetPosition?: () => void // 元の位置に戻すボタン（掛け合いモード用）
+  characterName?: string // キャラクター名（掛け合いモード用）
+  containerWidth?: number // コンテナの幅（掛け合いモード用）
 }
 
 export const MessageInput = ({
@@ -45,7 +48,12 @@ export const MessageInput = ({
   isSpeaking,
   silenceTimeoutRemaining,
   continuousMicListeningMode,
+  onResetPosition,
+  characterName,
+  containerWidth,
 }: Props) => {
+  // 掛け合いモードかどうかを判定
+  const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
   const chatProcessing = homeStore((s) => s.chatProcessing)
   const slidePlaying = slideStore((s) => s.isPlaying)
   const modalImage = homeStore((s) => s.modalImage)
@@ -330,6 +338,206 @@ export const MessageInput = ({
     onClickMicButton(event)
   }
 
+  // 掛け合いモードの場合のレイアウト
+  if (isDialogueMode && characterName && containerWidth) {
+    return (
+      <div className="w-full">
+        {showPermissionModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white p-6 rounded-2xl max-w-md">
+              <h3 className="text-xl font-bold mb-4">
+                {t('MicrophonePermission')}
+              </h3>
+              <p className="mb-4">{t('MicrophonePermissionMessage')}</p>
+              <button
+                className="bg-secondary hover:bg-secondary-hover px-4 py-2 rounded-lg"
+                onClick={() => setShowPermissionModal(false)}
+              >
+                {t('Close')}
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="bg-pink-100 bg-opacity-80 rounded-lg p-4">
+          {/* プログレスバー */}
+          {isMicRecording && showSilenceProgressBar && (
+            <div className="w-full h-2 bg-gray-200 rounded-full mb-2 overflow-hidden">
+              <div
+                className="h-full bg-secondary transition-all duration-200 ease-linear"
+                style={{
+                  width:
+                    silenceTimeoutRemaining !== null
+                      ? `${Math.min(
+                          100,
+                          Math.max(
+                            0,
+                            ((settingsStore.getState().noSpeechTimeout * 1000 -
+                              silenceTimeoutRemaining -
+                              300) /
+                              (settingsStore.getState().noSpeechTimeout * 1000 -
+                                600)) *
+                              100
+                          )
+                        )}%`
+                      : '0%',
+                }}
+              ></div>
+            </div>
+          )}
+          {/* エラーメッセージ表示 */}
+          {fileError && (
+            <div className="mb-2 p-2 bg-red-100 border border-red-300 text-red-700 rounded-lg text-sm">
+              {fileError}
+            </div>
+          )}
+          {/* 画像プレビュー */}
+          {modalImage && imageDisplayPosition === 'input' && (
+            <div
+              className="mb-2 p-2 bg-gray-100 rounded-lg relative"
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+            >
+              <button
+                onClick={handleRemoveImage}
+                className="absolute top-1 right-1 text-red-500 hover:text-red-700 text-sm font-medium w-6 h-6 flex items-center justify-center rounded-full hover:bg-red-50"
+              >
+                ×
+              </button>
+              <Image
+                src={modalImage}
+                alt="Pasted image"
+                width={0}
+                height={0}
+                sizes="100vw"
+                className="max-w-full max-h-32 rounded object-contain w-auto h-auto"
+              />
+            </div>
+          )}
+
+          <div className="flex gap-2 items-end">
+            {/* キャラクター名 + マイクボタン */}
+            <div className="flex items-center gap-2 flex-shrink-0 pb-[0.3rem]">
+              {characterName && (
+                <div className="text-sm font-bold font-kei whitespace-nowrap" style={{ color: '#FF0000' }}>
+                  {characterName}
+                </div>
+              )}
+              <IconButton
+                iconName="24/Microphone"
+                backgroundColor={
+                  continuousMicListeningMode
+                    ? 'bg-green-500 hover:bg-green-600 active:bg-green-700 text-theme'
+                    : undefined
+                }
+                isProcessing={isMicRecording}
+                isProcessingIcon={'24/PauseAlt'}
+                disabled={chatProcessing || isSpeaking}
+                onClick={handleMicClick}
+              />
+            </div>
+            {/* テキスト入力欄 */}
+            <div className="flex-1 relative min-w-0">
+              {showIconDisplay && (
+                <div className="absolute left-3 top-3 z-10">
+                  <div
+                    className="relative cursor-pointer"
+                    onMouseEnter={() => setShowImageActions(true)}
+                    onMouseLeave={() => setShowImageActions(false)}
+                    onFocus={() => setShowImageActions(true)}
+                    onBlur={() => setShowImageActions(false)}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={t('RemoveImage')}
+                  >
+                    <svg
+                      className="w-4 h-4 text-gray-500"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
+                      />
+                    </svg>
+                    {showImageActions && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleRemoveImage()
+                          setShowImageActions(false)
+                        }}
+                        className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-theme rounded-full flex items-center justify-center text-xs hover:bg-red-600 transition-colors"
+                        title={t('RemoveImage')}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+              <textarea
+                ref={textareaRef}
+                placeholder={
+                  chatProcessing
+                    ? `${t('AnswerGenerating')}${loadingDots}`
+                    : continuousMicListeningMode && isMicRecording
+                      ? t('ListeningContinuously')
+                      : isMultiModalSupported
+                        ? `${t('EnterYourQuestion')} (${t('PasteImageSupported') || 'Paste image supported'})`
+                        : t('EnterYourQuestion')
+                }
+                onChange={handleTextChange}
+                onPaste={handlePaste}
+                onKeyDown={handleKeyPress}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+                disabled={chatProcessing || slidePlaying}
+                className="bg-white hover:bg-white-hover focus:bg-white disabled:bg-gray-100 disabled:text-primary-disabled rounded-2xl w-full px-4 text-theme-default font-bold disabled"
+                value={userMessage}
+                rows={rows}
+                style={{
+                  lineHeight: '1.5',
+                  padding: showIconDisplay ? '8px 16px 8px 32px' : '8px 16px',
+                  resize: 'none',
+                  whiteSpace: 'pre-wrap',
+                }}
+              ></textarea>
+            </div>
+            {/* 送信ボタン + 停止ボタン + 位置戻すボタン */}
+            <div className="flex gap-2 flex-shrink-0 pb-[0.3rem]">
+              <IconButton
+                iconName="24/Send"
+                className="bg-secondary hover:bg-secondary-hover active:bg-secondary-press disabled:bg-secondary-disabled"
+                isProcessing={chatProcessing}
+                disabled={chatProcessing || !userMessage}
+                onClick={onClickSendButton}
+              />
+              <IconButton
+                iconName="stop"
+                className="bg-secondary hover:bg-secondary-hover active:bg-secondary-press disabled:bg-secondary-disabled"
+                onClick={onClickStopButton}
+                isProcessing={false}
+              />
+              {onResetPosition && (
+                <button
+                  onClick={onResetPosition}
+                  className="px-3 py-2 bg-gray-700 text-white rounded-lg text-sm hover:bg-gray-600 whitespace-nowrap"
+                  title="元の位置に戻す"
+                >
+                  ↺
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // 通常モード（単体モード）
   return (
     <div className="absolute bottom-0 z-20 w-screen">
       {showPermissionModal && (
@@ -507,6 +715,16 @@ export const MessageInput = ({
                 onClick={onClickStopButton}
                 isProcessing={false}
               />
+              
+              {onResetPosition && (
+                <button
+                  onClick={onResetPosition}
+                  className="px-3 py-2 bg-gray-700 text-white rounded-lg text-sm hover:bg-gray-600"
+                  title="元の位置に戻す"
+                >
+                  ↺
+                </button>
+              )}
             </div>
           </div>
         </div>

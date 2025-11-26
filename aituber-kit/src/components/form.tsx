@@ -18,6 +18,11 @@ export const Form = () => {
   const chatProcessingCount = homeStore((s) => s.chatProcessingCount)
   const [delayedText, setDelayedText] = useState('')
   const handleSendChat = handleSendChatFn()
+  
+  // 掛け合いモード判定
+  const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
+  const characterAName = settingsStore((s) => s.characterAName)
+  const characterBName = settingsStore((s) => s.characterBName)
 
   useEffect(() => {
     // テキストと画像がそろったら、チャットを送信
@@ -34,10 +39,17 @@ export const Form = () => {
     }
   }, [modalImage, delayedText, handleSendChat])
 
-  const hookSendChat = useCallback(
+  const hookSendChatA = useCallback(
     (text: string) => {
-      // マルチモーダル機能が使用可能かチェック
-      // リアルタイム画像トリガーは常にオフ
+      // キャラA用の送信処理（将来的にキャラクターIDを渡すように拡張）
+      handleSendChat(text)
+    },
+    [handleSendChat]
+  )
+
+  const hookSendChatB = useCallback(
+    (text: string) => {
+      // キャラB用の送信処理（将来的にキャラクターIDを渡すように拡張）
       handleSendChat(text)
     },
     [handleSendChat]
@@ -48,10 +60,25 @@ export const Form = () => {
     slidePlaying &&
     chatProcessingCount !== 0 ? (
     <SlideText />
+  ) : isDialogueMode ? (
+    // 掛け合いモード: 2つのチャット欄を表示
+    <div className="fixed bottom-0 left-0 right-0 flex gap-4 p-4 z-20">
+      <div className="flex-1">
+        <div className="text-sm font-bold mb-2 text-white">{characterAName}</div>
+        <PresetQuestionButtons onSelectQuestion={hookSendChatA} />
+        <MessageInputContainer onChatProcessStart={hookSendChatA} />
+      </div>
+      <div className="flex-1">
+        <div className="text-sm font-bold mb-2 text-white">{characterBName}</div>
+        <PresetQuestionButtons onSelectQuestion={hookSendChatB} />
+        <MessageInputContainer onChatProcessStart={hookSendChatB} />
+      </div>
+    </div>
   ) : (
+    // 単体モード: 1つのチャット欄を表示
     <>
-      <PresetQuestionButtons onSelectQuestion={hookSendChat} />
-      <MessageInputContainer onChatProcessStart={hookSendChat} />
+      <PresetQuestionButtons onSelectQuestion={hookSendChatA} />
+      <MessageInputContainer onChatProcessStart={hookSendChatA} />
     </>
   )
 }
