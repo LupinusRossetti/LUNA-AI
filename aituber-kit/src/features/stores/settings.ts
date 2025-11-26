@@ -193,6 +193,7 @@ interface Character {
   selectedPresetIndex: number
   showAssistantText: boolean
   showCharacterName: boolean
+  showSimultaneousDisplay: boolean
   systemPrompt: string
   systemPromptA: string
   systemPromptB: string
@@ -235,6 +236,9 @@ interface Character {
     z: number
   }
   lightingIntensity: number
+  live2dBounceEnabled: boolean
+  live2dBounceSpeed: number
+  live2dBounceAmount: number
 }
 
 // Preset question type
@@ -545,6 +549,9 @@ const getInitialValuesFromEnv = (): SettingsState => ({
   },
   lightingIntensity:
     parseFloat(process.env.NEXT_PUBLIC_LIGHTING_INTENSITY || '1.0') || 1.0,
+  live2dBounceEnabled: process.env.NEXT_PUBLIC_LIVE2D_BOUNCE_ENABLED === 'true' || false,
+  live2dBounceSpeed: parseFloat(process.env.NEXT_PUBLIC_LIVE2D_BOUNCE_SPEED || '1.0') || 1.0,
+  live2dBounceAmount: parseFloat(process.env.NEXT_PUBLIC_LIVE2D_BOUNCE_AMOUNT || '0.1') || 0.1,
 
   // General
   selectLanguage: (process.env.NEXT_PUBLIC_SELECT_LANGUAGE as Language) || 'ja',

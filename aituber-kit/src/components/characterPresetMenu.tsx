@@ -21,9 +21,8 @@ const CharacterPresetMenu = () => {
   const { placedImages, reorderAllLayers, getAllLayerItems } = useImagesStore()
 
   // コンポーネントが非表示設定の場合は何も表示しない
-  if (!showQuickMenu) {
-    return null
-  }
+  // キャラクタープリセット機能は現在使用していないため、常に非表示
+  return null
 
   const characterPresets = [
     {

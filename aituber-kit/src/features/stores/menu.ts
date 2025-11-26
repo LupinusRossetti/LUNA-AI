@@ -12,6 +12,7 @@ type SettingsTabKey =
   | 'images'
   | 'log'
   | 'other'
+  | 'credentials'
 interface MenuState {
   showWebcam: boolean
   showCapture: boolean

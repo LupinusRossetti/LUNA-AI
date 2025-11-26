@@ -6,6 +6,7 @@ import menuStore from '@/features/stores/menu'
 import settingsStore from '@/features/stores/settings'
 import slideStore from '@/features/stores/slide'
 import { TextButton } from '../textButton'
+import { SaveButton } from './SaveButton'
 
 const YouTube = () => {
   const youtubeApiKey = settingsStore((s) => s.youtubeApiKey)
@@ -32,17 +33,29 @@ const YouTube = () => {
     }
   }
 
+  // .envに保存する設定を生成
+  const getYouTubeSettingsForEnv = () => {
+    return {
+      NEXT_PUBLIC_YOUTUBE_MODE: youtubeMode ? 'true' : 'false',
+      NEXT_PUBLIC_YOUTUBE_LIVE_ID: youtubeLiveId || '',
+      NEXT_PUBLIC_CONVERSATION_CONTINUITY_MODE: conversationContinuityMode ? 'true' : 'false',
+    }
+  }
+
   return (
     <>
-      <div className="flex items-center mb-6">
-        <Image
-          src="/images/setting-icons/youtube-settings.svg"
-          alt="YouTube Settings"
-          width={24}
-          height={24}
-          className="mr-2"
-        />
-        <h2 className="text-2xl font-bold">{t('YoutubeSettings')}</h2>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center">
+          <Image
+            src="/images/setting-icons/youtube-settings.svg"
+            alt="YouTube Settings"
+            width={24}
+            height={24}
+            className="mr-2"
+          />
+          <h2 className="text-2xl font-bold">{t('YoutubeSettings')}</h2>
+        </div>
+        <SaveButton settingsToSave={getYouTubeSettingsForEnv()} />
       </div>
       <div className="mb-4 text-xl font-bold">{t('YoutubeMode')}</div>
       <div className="my-2">
@@ -62,20 +75,9 @@ const YouTube = () => {
             return (
               <>
                 <div className="">{t('YoutubeInfo')}</div>
-                <div className="my-4 text-xl font-bold">
-                  {t('YoutubeAPIKey')}
+                <div className="my-4 text-sm text-text2">
+                  <strong>注意：</strong> YouTube API Keyなどの機密情報は「機密情報設定」タブで設定してください。
                 </div>
-                <input
-                  className="text-ellipsis px-4 py-2 w-col-span-2 bg-white hover:bg-white-hover rounded-lg"
-                  type="text"
-                  placeholder="..."
-                  value={youtubeApiKey}
-                  onChange={(e) =>
-                    settingsStore.setState({
-                      youtubeApiKey: e.target.value,
-                    })
-                  }
-                />
                 <div className="my-4 text-xl font-bold">
                   {t('YoutubeLiveID')}
                 </div>

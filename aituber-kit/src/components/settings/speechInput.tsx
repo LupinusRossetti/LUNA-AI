@@ -4,6 +4,7 @@ import { TextButton } from '../textButton'
 import Image from 'next/image'
 import { useEffect } from 'react'
 import { Link } from '../link'
+import { SaveButton } from './SaveButton'
 
 const SpeechInput = () => {
   const noSpeechTimeout = settingsStore((s) => s.noSpeechTimeout)
@@ -19,17 +20,31 @@ const SpeechInput = () => {
   // realtimeAPIモードかaudioモードがオンの場合はボタンを無効化
   const isSpeechModeSwitchDisabled = false
 
+  // .envに保存する設定を生成
+  const getSpeechInputSettingsForEnv = () => {
+    return {
+      NEXT_PUBLIC_SPEECH_RECOGNITION_MODE: speechRecognitionMode,
+      NEXT_PUBLIC_CONTINUOUS_MIC_LISTENING_MODE: continuousMicListeningMode ? 'true' : 'false',
+      NEXT_PUBLIC_NO_SPEECH_TIMEOUT: noSpeechTimeout.toString(),
+      NEXT_PUBLIC_INITIAL_SPEECH_TIMEOUT: initialSpeechTimeout.toString(),
+      NEXT_PUBLIC_SHOW_SILENCE_PROGRESS_BAR: showSilenceProgressBar ? 'true' : 'false',
+    }
+  }
+
   return (
     <div className="mb-10">
-      <div className="flex items-center mb-6">
-        <Image
-          src="/images/setting-icons/microphone-settings.svg"
-          alt="Microphone Settings"
-          width={24}
-          height={24}
-          className="mr-2"
-        />
-        <h2 className="text-2xl font-bold">{t('SpeechInputSettings')}</h2>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center">
+          <Image
+            src="/images/setting-icons/microphone-settings.svg"
+            alt="Microphone Settings"
+            width={24}
+            height={24}
+            className="mr-2"
+          />
+          <h2 className="text-2xl font-bold">{t('SpeechInputSettings')}</h2>
+        </div>
+        <SaveButton settingsToSave={getSpeechInputSettingsForEnv()} />
       </div>
       <div className="my-6">
         <div className="my-4 text-xl font-bold">

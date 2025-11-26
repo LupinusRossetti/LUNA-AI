@@ -7,6 +7,7 @@ import menuStore from '@/features/stores/menu'
 import slideStore from '@/features/stores/slide'
 import { TextButton } from '../textButton'
 import SlideConvert from './slideConvert'
+import { SaveButton } from './SaveButton'
 
 const Slide = () => {
   const { t } = useTranslation()
@@ -50,17 +51,28 @@ const Slide = () => {
     slideStore.setState({ currentSlide: 0 })
   }
 
+  // .envに保存する設定を生成
+  const getSlideSettingsForEnv = () => {
+    return {
+      NEXT_PUBLIC_SLIDE_MODE: slideMode ? 'true' : 'false',
+      NEXT_PUBLIC_SELECTED_SLIDE_DOCS: selectedSlideDocs || '',
+    }
+  }
+
   return (
     <>
-      <div className="flex items-center mb-6">
-        <Image
-          src="/images/setting-icons/slide-settings.svg"
-          alt="Slide Settings"
-          width={24}
-          height={24}
-          className="mr-2"
-        />
-        <h2 className="text-2xl font-bold">{t('SlideSettings')}</h2>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center">
+          <Image
+            src="/images/setting-icons/slide-settings.svg"
+            alt="Slide Settings"
+            width={24}
+            height={24}
+            className="mr-2"
+          />
+          <h2 className="text-2xl font-bold">{t('SlideSettings')}</h2>
+        </div>
+        <SaveButton settingsToSave={getSlideSettingsForEnv()} />
       </div>
       <div className="mb-4 text-xl font-bold">{t('SlideMode')}</div>
       <p className="">{t('SlideModeDescription')}</p>

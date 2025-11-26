@@ -7,6 +7,7 @@ import { handleSendChatFn } from '../features/chat/handlers'
 import { MessageInputContainer } from './messageInputContainer'
 import { PresetQuestionButtons } from './presetQuestionButtons'
 import { SlideText } from './slideText'
+import { DraggableChatContainers } from './draggableChatContainers'
 
 export const Form = () => {
   const modalImage = homeStore((s) => s.modalImage)
@@ -61,19 +62,13 @@ export const Form = () => {
     chatProcessingCount !== 0 ? (
     <SlideText />
   ) : isDialogueMode ? (
-    // 掛け合いモード: 2つのチャット欄を表示
-    <div className="fixed bottom-0 left-0 right-0 flex gap-4 p-4 z-20">
-      <div className="flex-1">
-        <div className="text-sm font-bold mb-2 text-white">{characterAName}</div>
-        <PresetQuestionButtons onSelectQuestion={hookSendChatA} />
-        <MessageInputContainer onChatProcessStart={hookSendChatA} />
-      </div>
-      <div className="flex-1">
-        <div className="text-sm font-bold mb-2 text-white">{characterBName}</div>
-        <PresetQuestionButtons onSelectQuestion={hookSendChatB} />
-        <MessageInputContainer onChatProcessStart={hookSendChatB} />
-      </div>
-    </div>
+    // 掛け合いモード: 2つのドラッグ可能なチャット欄を表示
+    <DraggableChatContainers
+      characterAName={characterAName}
+      characterBName={characterBName}
+      onChatProcessStartA={hookSendChatA}
+      onChatProcessStartB={hookSendChatB}
+    />
   ) : (
     // 単体モード: 1つのチャット欄を表示
     <>

@@ -6,38 +6,63 @@ import settingsStore from '@/features/stores/settings'
 import { testVoiceVox, testAivisSpeech } from '@/features/messages/speakCharacter'
 import { TextButton } from '../textButton'
 import { Link } from '../link'
+import { SaveButton } from './SaveButton'
 import speakers from '../speakers.json'
 
-const Voice = () => {
-  const selectVoice = settingsStore((s) => s.selectVoice)
-  const voicevoxSpeaker = settingsStore((s) => s.voicevoxSpeaker)
-  const voicevoxSpeed = settingsStore((s) => s.voicevoxSpeed)
-  const voicevoxPitch = settingsStore((s) => s.voicevoxPitch)
-  const voicevoxIntonation = settingsStore((s) => s.voicevoxIntonation)
-  const voicevoxServerUrl = settingsStore((s) => s.voicevoxServerUrl)
-
-  const aivisSpeechSpeaker = settingsStore((s) => s.aivisSpeechSpeaker)
-  const aivisSpeechSpeed = settingsStore((s) => s.aivisSpeechSpeed)
-  const aivisSpeechPitch = settingsStore((s) => s.aivisSpeechPitch)
-  const aivisSpeechIntonationScale = settingsStore(
-    (s) => s.aivisSpeechIntonationScale
-  )
-  const aivisSpeechServerUrl = settingsStore((s) => s.aivisSpeechServerUrl)
-  const aivisSpeechTempoDynamics = settingsStore(
-    (s) => s.aivisSpeechTempoDynamics
-  )
-  const aivisSpeechPrePhonemeLength = settingsStore(
-    (s) => s.aivisSpeechPrePhonemeLength
-  )
-  const aivisSpeechPostPhonemeLength = settingsStore(
-    (s) => s.aivisSpeechPostPhonemeLength
-  )
-
+// キャラクター別の音声設定コンポーネント
+const CharacterVoiceSettings = ({
+  characterId,
+  characterName,
+}: {
+  characterId: 'A' | 'B'
+  characterName: string
+}) => {
   const { t } = useTranslation()
   const [customVoiceText, setCustomVoiceText] = useState('')
   const [aivisSpeakers, setAivisSpeakers] = useState<
     { speaker: string; id: number }[]
   >([])
+
+  // キャラクター別の設定を取得
+  const selectVoice = settingsStore(
+    (s) => (characterId === 'A' ? s.selectVoiceA : s.selectVoiceB) || 'aivis_speech'
+  )
+  const voicevoxSpeaker = settingsStore(
+    (s) => (characterId === 'A' ? s.voicevoxSpeakerA : s.voicevoxSpeakerB) || '46'
+  )
+  const voicevoxSpeed = settingsStore(
+    (s) => (characterId === 'A' ? s.voicevoxSpeedA : s.voicevoxSpeedB) || 1.0
+  )
+  const voicevoxPitch = settingsStore(
+    (s) => (characterId === 'A' ? s.voicevoxPitchA : s.voicevoxPitchB) || 0.0
+  )
+  const voicevoxIntonation = settingsStore(
+    (s) => (characterId === 'A' ? s.voicevoxIntonationA : s.voicevoxIntonationB) || 1.0
+  )
+  const voicevoxServerUrl = settingsStore((s) => s.voicevoxServerUrl)
+
+  const aivisSpeechSpeaker = settingsStore(
+    (s) => (characterId === 'A' ? s.aivisSpeechSpeakerA : s.aivisSpeechSpeakerB) || '997152320'
+  )
+  const aivisSpeechSpeed = settingsStore(
+    (s) => (characterId === 'A' ? s.aivisSpeechSpeedA : s.aivisSpeechSpeedB) || 1.0
+  )
+  const aivisSpeechPitch = settingsStore(
+    (s) => (characterId === 'A' ? s.aivisSpeechPitchA : s.aivisSpeechPitchB) || 0.0
+  )
+  const aivisSpeechIntonationScale = settingsStore(
+    (s) => (characterId === 'A' ? s.aivisSpeechIntonationScaleA : s.aivisSpeechIntonationScaleB) || 1.0
+  )
+  const aivisSpeechServerUrl = settingsStore((s) => s.aivisSpeechServerUrl)
+  const aivisSpeechTempoDynamics = settingsStore(
+    (s) => (characterId === 'A' ? s.aivisSpeechTempoDynamicsA : s.aivisSpeechTempoDynamicsB) || 1.0
+  )
+  const aivisSpeechPrePhonemeLength = settingsStore(
+    (s) => (characterId === 'A' ? s.aivisSpeechPrePhonemeLengthA : s.aivisSpeechPrePhonemeLengthB) || 0.1
+  )
+  const aivisSpeechPostPhonemeLength = settingsStore(
+    (s) => (characterId === 'A' ? s.aivisSpeechPostPhonemeLengthA : s.aivisSpeechPostPhonemeLengthB) || 0.1
+  )
 
   const fetchAivisSpeakers = useCallback(async () => {
     try {
@@ -55,35 +80,30 @@ const Voice = () => {
   }, [fetchAivisSpeakers])
 
   const handleVoiceChange = (voice: 'voicevox' | 'aivis_speech') => {
-    settingsStore.setState({ selectVoice: voice })
+    if (characterId === 'A') {
+      settingsStore.setState({ selectVoiceA: voice })
+    } else {
+      settingsStore.setState({ selectVoiceB: voice })
+    }
   }
 
   const handleTestVoice = () => {
     if (selectVoice === 'voicevox') {
-      testVoiceVox(customVoiceText || undefined)
+      testVoiceVox(customVoiceText || undefined, characterId)
     } else {
-      testAivisSpeech(customVoiceText || undefined)
+      testAivisSpeech(customVoiceText || undefined, characterId)
     }
   }
 
   return (
-    <div className="mb-10">
-      <div className="flex items-center mb-6">
-        <Image
-          src="/images/setting-icons/voice-settings.svg"
-          alt="Voice Settings"
-          width={24}
-          height={24}
-          className="mr-2"
-        />
-        <h2 className="text-2xl font-bold">{t('VoiceSettings')}</h2>
-      </div>
+    <div className="mb-8 p-4 border border-gray-300 rounded-lg bg-white bg-opacity-50">
+      <div className="text-xl font-bold mb-4">{characterName} の音声設定</div>
 
-      <div className="mb-4 text-xl font-bold">
+      <div className="mb-4 text-lg font-bold">
         {t('SyntheticVoiceEngineChoice')}
       </div>
 
-      <div className="flex flex-wrap gap-3 items-center">
+      <div className="flex flex-wrap gap-3 items-center mb-4">
         <select
           value={selectVoice}
           onChange={(e) =>
@@ -97,12 +117,12 @@ const Voice = () => {
         <TextButton onClick={handleTestVoice}>{t('TestVoiceSettings')}</TextButton>
       </div>
 
-      <div className="text-sm text-text2 mt-2">
+      <div className="text-sm text-text2 mb-4">
         {selectVoice === 'voicevox' ? t('VoiceVoxInfo') : t('AivisSpeechInfo')}
       </div>
 
       {selectVoice === 'voicevox' ? (
-        <div className="mt-6 space-y-6">
+        <div className="space-y-6">
           <div>
             <div className="text-lg font-bold">{t('UsingVoiceVox')}</div>
             <div className="text-sm text-text2">
@@ -129,9 +149,13 @@ const Voice = () => {
             <div className="font-bold">{t('SpeakerSelection')}</div>
             <select
               value={voicevoxSpeaker}
-              onChange={(e) =>
-                settingsStore.setState({ voicevoxSpeaker: e.target.value })
-              }
+              onChange={(e) => {
+                if (characterId === 'A') {
+                  settingsStore.setState({ voicevoxSpeakerA: e.target.value })
+                } else {
+                  settingsStore.setState({ voicevoxSpeakerB: e.target.value })
+                }
+              }}
               className="px-4 py-2 bg-white hover:bg-white-hover rounded-lg w-full"
             >
               <option value="">{t('Select')}</option>
@@ -155,11 +179,17 @@ const Voice = () => {
                 step={0.01}
                 value={voicevoxSpeed}
                 className="mt-2 mb-4 input-range"
-                onChange={(e) =>
-                  settingsStore.setState({
-                    voicevoxSpeed: Number(e.target.value),
-                  })
-                }
+                onChange={(e) => {
+                  if (characterId === 'A') {
+                    settingsStore.setState({
+                      voicevoxSpeedA: Number(e.target.value),
+                    })
+                  } else {
+                    settingsStore.setState({
+                      voicevoxSpeedB: Number(e.target.value),
+                    })
+                  }
+                }}
               />
             </div>
             <div>
@@ -173,11 +203,17 @@ const Voice = () => {
                 step={0.01}
                 value={voicevoxPitch}
                 className="mt-2 mb-4 input-range"
-                onChange={(e) =>
-                  settingsStore.setState({
-                    voicevoxPitch: Number(e.target.value),
-                  })
-                }
+                onChange={(e) => {
+                  if (characterId === 'A') {
+                    settingsStore.setState({
+                      voicevoxPitchA: Number(e.target.value),
+                    })
+                  } else {
+                    settingsStore.setState({
+                      voicevoxPitchB: Number(e.target.value),
+                    })
+                  }
+                }}
               />
             </div>
             <div>
@@ -191,17 +227,23 @@ const Voice = () => {
                 step={0.01}
                 value={voicevoxIntonation}
                 className="mt-2 mb-4 input-range"
-                onChange={(e) =>
-                  settingsStore.setState({
-                    voicevoxIntonation: Number(e.target.value),
-                  })
-                }
+                onChange={(e) => {
+                  if (characterId === 'A') {
+                    settingsStore.setState({
+                      voicevoxIntonationA: Number(e.target.value),
+                    })
+                  } else {
+                    settingsStore.setState({
+                      voicevoxIntonationB: Number(e.target.value),
+                    })
+                  }
+                }}
               />
             </div>
           </div>
         </div>
       ) : (
-        <div className="mt-6 space-y-6">
+        <div className="space-y-6">
           <div>
             <div className="text-lg font-bold">{t('UsingAivisSpeech')}</div>
             <div className="text-sm text-text2">
@@ -215,9 +257,13 @@ const Voice = () => {
             <div className="font-bold">{t('AivisSpeechSpeaker')}</div>
             <select
               value={aivisSpeechSpeaker}
-              onChange={(e) =>
-                settingsStore.setState({ aivisSpeechSpeaker: e.target.value })
-              }
+              onChange={(e) => {
+                if (characterId === 'A') {
+                  settingsStore.setState({ aivisSpeechSpeakerA: e.target.value })
+                } else {
+                  settingsStore.setState({ aivisSpeechSpeakerB: e.target.value })
+                }
+              }}
               className="px-4 py-2 bg-white hover:bg-white-hover rounded-lg w-full"
             >
               {aivisSpeakers.map((speaker) => (
@@ -240,11 +286,17 @@ const Voice = () => {
                 step={0.01}
                 value={aivisSpeechSpeed}
                 className="mt-2 mb-4 input-range"
-                onChange={(e) =>
-                  settingsStore.setState({
-                    aivisSpeechSpeed: Number(e.target.value),
-                  })
-                }
+                onChange={(e) => {
+                  if (characterId === 'A') {
+                    settingsStore.setState({
+                      aivisSpeechSpeedA: Number(e.target.value),
+                    })
+                  } else {
+                    settingsStore.setState({
+                      aivisSpeechSpeedB: Number(e.target.value),
+                    })
+                  }
+                }}
               />
             </div>
             <div>
@@ -258,11 +310,17 @@ const Voice = () => {
                 step={0.01}
                 value={aivisSpeechPitch}
                 className="mt-2 mb-4 input-range"
-                onChange={(e) =>
-                  settingsStore.setState({
-                    aivisSpeechPitch: Number(e.target.value),
-                  })
-                }
+                onChange={(e) => {
+                  if (characterId === 'A') {
+                    settingsStore.setState({
+                      aivisSpeechPitchA: Number(e.target.value),
+                    })
+                  } else {
+                    settingsStore.setState({
+                      aivisSpeechPitchB: Number(e.target.value),
+                    })
+                  }
+                }}
               />
             </div>
             <div>
@@ -276,11 +334,17 @@ const Voice = () => {
                 step={0.01}
                 value={aivisSpeechTempoDynamics}
                 className="mt-2 mb-4 input-range"
-                onChange={(e) =>
-                  settingsStore.setState({
-                    aivisSpeechTempoDynamics: Number(e.target.value),
-                  })
-                }
+                onChange={(e) => {
+                  if (characterId === 'A') {
+                    settingsStore.setState({
+                      aivisSpeechTempoDynamicsA: Number(e.target.value),
+                    })
+                  } else {
+                    settingsStore.setState({
+                      aivisSpeechTempoDynamicsB: Number(e.target.value),
+                    })
+                  }
+                }}
               />
             </div>
             <div>
@@ -295,11 +359,17 @@ const Voice = () => {
                 step={0.01}
                 value={aivisSpeechIntonationScale}
                 className="mt-2 mb-4 input-range"
-                onChange={(e) =>
-                  settingsStore.setState({
-                    aivisSpeechIntonationScale: Number(e.target.value),
-                  })
-                }
+                onChange={(e) => {
+                  if (characterId === 'A') {
+                    settingsStore.setState({
+                      aivisSpeechIntonationScaleA: Number(e.target.value),
+                    })
+                  } else {
+                    settingsStore.setState({
+                      aivisSpeechIntonationScaleB: Number(e.target.value),
+                    })
+                  }
+                }}
               />
             </div>
           </div>
@@ -316,11 +386,17 @@ const Voice = () => {
                 step={0.01}
                 value={aivisSpeechPrePhonemeLength}
                 className="mt-2 mb-4 input-range"
-                onChange={(e) =>
-                  settingsStore.setState({
-                    aivisSpeechPrePhonemeLength: Number(e.target.value),
-                  })
-                }
+                onChange={(e) => {
+                  if (characterId === 'A') {
+                    settingsStore.setState({
+                      aivisSpeechPrePhonemeLengthA: Number(e.target.value),
+                    })
+                  } else {
+                    settingsStore.setState({
+                      aivisSpeechPrePhonemeLengthB: Number(e.target.value),
+                    })
+                  }
+                }}
               />
             </div>
             <div>
@@ -335,11 +411,17 @@ const Voice = () => {
                 step={0.01}
                 value={aivisSpeechPostPhonemeLength}
                 className="mt-2 mb-4 input-range"
-                onChange={(e) =>
-                  settingsStore.setState({
-                    aivisSpeechPostPhonemeLength: Number(e.target.value),
-                  })
-                }
+                onChange={(e) => {
+                  if (characterId === 'A') {
+                    settingsStore.setState({
+                      aivisSpeechPostPhonemeLengthA: Number(e.target.value),
+                    })
+                  } else {
+                    settingsStore.setState({
+                      aivisSpeechPostPhonemeLengthB: Number(e.target.value),
+                    })
+                  }
+                }}
               />
             </div>
           </div>
@@ -351,9 +433,9 @@ const Voice = () => {
               type="text"
               placeholder="https://aivis.ddns.net"
               value={aivisSpeechServerUrl}
-              onChange={(e) =>
+              onChange={(e) => {
                 settingsStore.setState({ aivisSpeechServerUrl: e.target.value })
-              }
+              }}
             />
           </div>
         </div>
@@ -373,5 +455,64 @@ const Voice = () => {
   )
 }
 
-export default Voice
+const Voice = () => {
+  const { t } = useTranslation()
+  const characterAName = settingsStore((s) => s.characterAName)
+  const characterBName = settingsStore((s) => s.characterBName)
+  
+  // 音声設定を.env形式に変換
+  const getVoiceSettingsForEnv = () => {
+    const ss = settingsStore.getState()
+    return {
+      NEXT_PUBLIC_SELECT_VOICE_A: ss.selectVoiceA || 'aivis_speech',
+      NEXT_PUBLIC_SELECT_VOICE_B: ss.selectVoiceB || 'aivis_speech',
+      VOICEVOX_SERVER_URL: ss.voicevoxServerUrl || 'http://localhost:50021',
+      NEXT_PUBLIC_VOICEVOX_SPEAKER_A: ss.voicevoxSpeakerA || '46',
+      NEXT_PUBLIC_VOICEVOX_SPEAKER_B: ss.voicevoxSpeakerB || '46',
+      NEXT_PUBLIC_VOICEVOX_SPEED_A: String(ss.voicevoxSpeedA || 1.0),
+      NEXT_PUBLIC_VOICEVOX_SPEED_B: String(ss.voicevoxSpeedB || 1.0),
+      NEXT_PUBLIC_VOICEVOX_PITCH_A: String(ss.voicevoxPitchA || 0.0),
+      NEXT_PUBLIC_VOICEVOX_PITCH_B: String(ss.voicevoxPitchB || 0.0),
+      NEXT_PUBLIC_VOICEVOX_INTONATION_A: String(ss.voicevoxIntonationA || 1.0),
+      NEXT_PUBLIC_VOICEVOX_INTONATION_B: String(ss.voicevoxIntonationB || 1.0),
+      AIVIS_SPEECH_SERVER_URL: ss.aivisSpeechServerUrl || 'http://localhost:10101',
+      NEXT_PUBLIC_AIVIS_SPEECH_SPEAKER_A: ss.aivisSpeechSpeakerA || '997152320',
+      NEXT_PUBLIC_AIVIS_SPEECH_SPEAKER_B: ss.aivisSpeechSpeakerB || '1132029248',
+      NEXT_PUBLIC_AIVIS_SPEECH_SPEED_A: String(ss.aivisSpeechSpeedA || 1.0),
+      NEXT_PUBLIC_AIVIS_SPEECH_SPEED_B: String(ss.aivisSpeechSpeedB || 1.0),
+      NEXT_PUBLIC_AIVIS_SPEECH_PITCH_A: String(ss.aivisSpeechPitchA || 0.0),
+      NEXT_PUBLIC_AIVIS_SPEECH_PITCH_B: String(ss.aivisSpeechPitchB || 0.0),
+      NEXT_PUBLIC_AIVIS_SPEECH_INTONATION_SCALE_A: String(ss.aivisSpeechIntonationScaleA || 1.0),
+      NEXT_PUBLIC_AIVIS_SPEECH_INTONATION_SCALE_B: String(ss.aivisSpeechIntonationScaleB || 1.0),
+      NEXT_PUBLIC_AIVIS_SPEECH_TEMPO_DYNAMICS_A: String(ss.aivisSpeechTempoDynamicsA || 1.0),
+      NEXT_PUBLIC_AIVIS_SPEECH_TEMPO_DYNAMICS_B: String(ss.aivisSpeechTempoDynamicsB || 1.0),
+      NEXT_PUBLIC_AIVIS_SPEECH_PRE_PHONEME_LENGTH_A: String(ss.aivisSpeechPrePhonemeLengthA || 0.1),
+      NEXT_PUBLIC_AIVIS_SPEECH_PRE_PHONEME_LENGTH_B: String(ss.aivisSpeechPrePhonemeLengthB || 0.1),
+      NEXT_PUBLIC_AIVIS_SPEECH_POST_PHONEME_LENGTH_A: String(ss.aivisSpeechPostPhonemeLengthA || 0.1),
+      NEXT_PUBLIC_AIVIS_SPEECH_POST_PHONEME_LENGTH_B: String(ss.aivisSpeechPostPhonemeLengthB || 0.1),
+    }
+  }
 
+  return (
+    <div className="mb-10">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center">
+          <Image
+            src="/images/setting-icons/voice-settings.svg"
+            alt="Voice Settings"
+            width={24}
+            height={24}
+            className="mr-2"
+          />
+          <h2 className="text-2xl font-bold">{t('VoiceSettings')}</h2>
+        </div>
+        <SaveButton settingsToSave={getVoiceSettingsForEnv()} />
+      </div>
+
+      <CharacterVoiceSettings characterId="A" characterName={characterAName} />
+      <CharacterVoiceSettings characterId="B" characterName={characterBName} />
+    </div>
+  )
+}
+
+export default Voice

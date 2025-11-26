@@ -17,6 +17,7 @@ import '@/styles/globals.css'
 import '@/styles/themes.css'
 
 export default function App({ Component, pageProps }: AppProps) {
+  const [isLoading, setIsLoading] = React.useState(true)
 
   useEffect(() => {
     const hs = homeStore.getState()
@@ -25,6 +26,7 @@ export default function App({ Component, pageProps }: AppProps) {
     if (hs.userOnboarded) {
       i18n.changeLanguage(ss.selectLanguage)
       document.documentElement.setAttribute('data-theme', ss.colorTheme)
+      setIsLoading(false)
       return
     }
 
@@ -45,7 +47,27 @@ export default function App({ Component, pageProps }: AppProps) {
 
     document.documentElement.setAttribute('data-theme', ss.colorTheme)
     homeStore.setState({ userOnboarded: true })
+    
+    // 少し遅延させてからローディングを解除（画面が安定するまで）
+    setTimeout(() => {
+      setIsLoading(false)
+    }, 100)
   }, [])
+
+  // ローディング中は白い画面を表示
+  if (isLoading) {
+    return (
+      <div style={{ 
+        position: 'fixed', 
+        top: 0, 
+        left: 0, 
+        width: '100%', 
+        height: '100%', 
+        backgroundColor: '#ffffff',
+        zIndex: 9999
+      }} />
+    )
+  }
 
   return (
     <>

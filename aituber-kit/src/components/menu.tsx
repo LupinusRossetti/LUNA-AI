@@ -47,6 +47,7 @@ export const Menu = () => {
   const showCapture = menuStore((s) => s.showCapture)
   const slidePlaying = slideStore((s) => s.isPlaying)
   const showAssistantText = settingsStore((s) => s.showAssistantText)
+  const showSimultaneousDisplay = settingsStore((s) => s.showSimultaneousDisplay || false)
 
   const [showSettings, setShowSettings] = useState(false)
   // 会話ログ表示モード
@@ -310,9 +311,21 @@ export const Menu = () => {
       <div className="relative">
         {slideMode && slideVisible && <Slides markdown={markdownContent} />}
       </div>
-      {chatLogMode === CHAT_LOG_MODE.CHAT_LOG && <ChatLog />}
+      {/* 会話ログ表示 */}
+      {(chatLogMode === CHAT_LOG_MODE.CHAT_LOG || 
+        (chatLogMode === CHAT_LOG_MODE.ASSISTANT && showSimultaneousDisplay)) && 
+        <ChatLog />}
       {showSettings && <Settings onClickClose={() => setShowSettings(false)} />}
+      {/* セリフ枠表示 */}
       {chatLogMode === CHAT_LOG_MODE.ASSISTANT &&
+        latestAssistantMessage &&
+        (!slideMode || !slideVisible) &&
+        showAssistantText && (
+          <AssistantText message={latestAssistantMessage} role={latestAssistantRole} />
+        )}
+      {/* 同時表示モード: セリフ枠も表示 */}
+      {chatLogMode === CHAT_LOG_MODE.CHAT_LOG &&
+        showSimultaneousDisplay &&
         latestAssistantMessage &&
         (!slideMode || !slideVisible) &&
         showAssistantText && (

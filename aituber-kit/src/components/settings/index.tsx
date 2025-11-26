@@ -5,7 +5,6 @@ import menuStore from '@/features/stores/menu'
 import { GitHubLink } from '../githubLink'
 import { IconButton } from '../iconButton'
 import Image from 'next/image'
-import Description from './description'
 import Based from './based'
 import Character from './character'
 import AI from './ai'
@@ -16,6 +15,7 @@ import Log from './log'
 import Other from './other'
 import SpeechInput from './speechInput'
 import Images from './images'
+import Credentials from './credentials'
 
 type Props = {
   onClickClose: () => void
@@ -48,7 +48,6 @@ const Header = ({ onClickClose }: Pick<Props, 'onClickClose'>) => {
 
 // タブの定義
 type TabKey =
-  | 'description'
   | 'based'
   | 'character'
   | 'ai'
@@ -59,10 +58,10 @@ type TabKey =
   | 'log'
   | 'other'
   | 'speechInput'
+  | 'credentials'
 
 // アイコンのパスマッピング
 const tabIconMapping: Record<TabKey, string> = {
-  description: '/images/setting-icons/description.svg',
   based: '/images/setting-icons/basic-settings.svg',
   character: '/images/setting-icons/character-settings.svg',
   ai: '/images/setting-icons/ai-settings.svg',
@@ -73,6 +72,7 @@ const tabIconMapping: Record<TabKey, string> = {
   log: '/images/setting-icons/conversation-history.svg',
   other: '/images/setting-icons/other-settings.svg',
   speechInput: '/images/setting-icons/microphone-settings.svg',
+  credentials: '/images/setting-icons/other-settings.svg',
 }
 
 const Main = () => {
@@ -107,10 +107,6 @@ const Main = () => {
   }, [isDropdownOpen])
 
   const tabs: { key: TabKey; label: string }[] = [
-    {
-      key: 'description',
-      label: t('Description'),
-    },
     {
       key: 'based',
       label: t('BasedSettings'),
@@ -151,12 +147,14 @@ const Main = () => {
       key: 'other',
       label: t('OtherSettings'),
     },
+    {
+      key: 'credentials',
+      label: '機密情報設定',
+    },
   ]
 
   const renderTabContent = () => {
     switch (activeTab) {
-      case 'description':
-        return <Description />
       case 'based':
         return <Based />
       case 'character':
@@ -177,6 +175,8 @@ const Main = () => {
         return <Other />
       case 'speechInput':
         return <SpeechInput />
+      case 'credentials':
+        return <Credentials />
     }
   }
 

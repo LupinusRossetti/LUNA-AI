@@ -283,15 +283,15 @@ export function handleTTSError(error: unknown, serviceName: string): void {
 
 export const speakCharacter = createSpeakCharacter()
 
-export const testVoiceVox = async (customText?: string) => {
-  await testVoice('voicevox', customText)
+export const testVoiceVox = async (customText?: string, characterId?: 'A' | 'B') => {
+  await testVoice('voicevox', customText, characterId)
 }
 
-export const testAivisSpeech = async (customText?: string) => {
-  await testVoice('aivis_speech', customText)
+export const testAivisSpeech = async (customText?: string, characterId?: 'A' | 'B') => {
+  await testVoice('aivis_speech', customText, characterId)
 }
 
-export const testVoice = async (voiceType: AIVoice, customText?: string) => {
+export const testVoice = async (voiceType: AIVoice, customText?: string, characterId?: 'A' | 'B') => {
   const ss = settingsStore.getState()
 
   const defaultMessages: Record<AIVoice, string> = {
@@ -304,15 +304,11 @@ export const testVoice = async (voiceType: AIVoice, customText?: string) => {
   const talk: Talk = {
     message,
     emotion: 'neutral',
+    characterId: characterId, // characterIdを追加
   }
 
   try {
-    const currentVoice = ss.selectVoice
-    settingsStore.setState({ selectVoice: voiceType })
-
-    const buffer = await synthesizeVoice(talk, voiceType)
-
-    settingsStore.setState({ selectVoice: currentVoice })
+    const buffer = await synthesizeVoice(talk, voiceType, characterId)
 
     if (buffer) {
       if (ss.modelType === 'vrm') {

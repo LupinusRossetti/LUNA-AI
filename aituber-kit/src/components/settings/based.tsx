@@ -8,6 +8,7 @@ import menuStore from '@/features/stores/menu'
 import settingsStore from '@/features/stores/settings'
 import { TextButton } from '../textButton'
 import { IMAGE_CONSTANTS } from '@/constants/images'
+import { SaveButton } from './SaveButton'
 
 const Based = () => {
   const { t } = useTranslation()
@@ -20,6 +21,7 @@ const Based = () => {
     (s) => s.changeEnglishToJapanese
   )
   const colorTheme = settingsStore((s) => s.colorTheme)
+  const showSimultaneousDisplay = settingsStore((s) => s.showSimultaneousDisplay)
   const [backgroundFiles, setBackgroundFiles] = useState<string[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -93,20 +95,37 @@ const Based = () => {
     }
   }
 
+  // .envに保存する設定を生成
+  const getBasedSettingsForEnv = () => {
+    return {
+      NEXT_PUBLIC_SELECT_LANGUAGE: selectLanguage,
+      NEXT_PUBLIC_CHANGE_ENGLISH_TO_JAPANESE: changeEnglishToJapanese ? 'true' : 'false',
+      NEXT_PUBLIC_BACKGROUND_IMAGE_PATH: backgroundImageUrl,
+      NEXT_PUBLIC_SHOW_ASSISTANT_TEXT: showAssistantText ? 'true' : 'false',
+      NEXT_PUBLIC_SHOW_CHARACTER_NAME: showCharacterName ? 'true' : 'false',
+      NEXT_PUBLIC_SHOW_CONTROL_PANEL: showControlPanel ? 'true' : 'false',
+      NEXT_PUBLIC_SHOW_SIMULTANEOUS_DISPLAY: showSimultaneousDisplay ? 'true' : 'false',
+      NEXT_PUBLIC_COLOR_THEME: colorTheme,
+    }
+  }
+
   return (
     <>
       <div className="mb-6">
-        <div className="flex items-center mb-6">
-          <div
-            className="w-6 h-6 mr-2 icon-mask-default"
-            style={{
-              maskImage: 'url(/images/setting-icons/basic-settings.svg)',
-              maskSize: 'contain',
-              maskRepeat: 'no-repeat',
-              maskPosition: 'center',
-            }}
-          />
-          <h2 className="text-2xl font-bold">{t('BasedSettings')}</h2>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center">
+            <div
+              className="w-6 h-6 mr-2 icon-mask-default"
+              style={{
+                maskImage: 'url(/images/setting-icons/basic-settings.svg)',
+                maskSize: 'contain',
+                maskRepeat: 'no-repeat',
+                maskPosition: 'center',
+              }}
+            />
+            <h2 className="text-2xl font-bold">{t('BasedSettings')}</h2>
+          </div>
+          <SaveButton settingsToSave={getBasedSettingsForEnv()} />
         </div>
         <div className="mb-4 text-xl font-bold">{t('Language')}</div>
         <div className="my-2">

@@ -23,7 +23,7 @@ export default async function handler(req: NextRequest) {
 
   const {
     messages,
-    apiKey,
+    apiKey: apiKeyFromRequest,
     model = 'gemini-2.0-flash',
     stream = false,
     useSearchGrounding = true,
@@ -31,6 +31,10 @@ export default async function handler(req: NextRequest) {
     temperature = 1.0,
     maxTokens = 4096,
   } = await req.json()
+
+  // サーバー側の環境変数から直接読み込む（優先）
+  // リクエストから来たAPIキーはフォールバックとして使用
+  const apiKey = process.env.GOOGLE_API_KEY || apiKeyFromRequest
 
   if (!apiKey) {
     return new Response(

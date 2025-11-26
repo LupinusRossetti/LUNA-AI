@@ -7,6 +7,7 @@ import menuStore from '@/features/stores/menu'
 import settingsStore, { SettingsState } from '@/features/stores/settings'
 import toastStore from '@/features/stores/toast'
 import { TextButton } from '../textButton'
+import { SaveButton } from './SaveButton'
 
 // Character型の定義
 type Character = Pick<
@@ -345,6 +346,8 @@ const Character = () => {
     characterName,
     selectedVrmPath,
     selectedLive2DPath,
+    selectedLive2DPathA,
+    selectedLive2DPathB,
     modelType,
     fixedCharacterPosition,
     systemPrompt,
@@ -360,11 +363,27 @@ const Character = () => {
     customPresetName5,
     selectedPresetIndex,
     lightingIntensity,
+    characterAName,
+    characterBName,
+    systemPromptA,
+    systemPromptB,
+    characterPositionA,
+    characterPositionB,
+    live2dBounceEnabled,
+    live2dBounceSpeed,
+    live2dBounceAmount,
   } = settingsStore()
   const [vrmFiles, setVrmFiles] = useState<string[]>([])
   const [live2dModels, setLive2dModels] = useState<
     Array<{ path: string; name: string }>
   >([])
+  
+  // プロンプトファイルの内容を管理
+  const [promptFileAContent, setPromptFileAContent] = useState('')
+  const [promptFileBContent, setPromptFileBContent] = useState('')
+  const [promptFileAPath, setPromptFileAPath] = useState(process.env.NEXT_PUBLIC_PROMPT_FILE_A || './prompts/iris.txt')
+  const [promptFileBPath, setPromptFileBPath] = useState(process.env.NEXT_PUBLIC_PROMPT_FILE_B || './prompts/fiona.txt')
+  const [isLoadingPrompt, setIsLoadingPrompt] = useState(false)
 
   const characterPresets = [
     {
@@ -411,7 +430,27 @@ const Character = () => {
       .catch((error) => {
         console.error('Error fetching Live2D list:', error)
       })
+
+    // プロンプトファイルを読み込む
+    setIsLoadingPrompt(true)
+    Promise.all([
+      fetch(`/api/load-prompt?filePath=${encodeURIComponent(promptFileAPath)}`)
+        .then((res) => res.json())
+        .then((data) => setPromptFileAContent(data.content || ''))
+        .catch((error) => {
+          console.error('Error loading prompt file A:', error)
+          setPromptFileAContent('')
+        }),
+      fetch(`/api/load-prompt?filePath=${encodeURIComponent(promptFileBPath)}`)
+        .then((res) => res.json())
+        .then((data) => setPromptFileBContent(data.content || ''))
+        .catch((error) => {
+          console.error('Error loading prompt file B:', error)
+          setPromptFileBContent('')
+        }),
+    ]).finally(() => setIsLoadingPrompt(false))
   }, [])
+  
   const handlePositionAction = (action: 'fix' | 'unfix' | 'reset') => {
     try {
       const { viewer, live2dViewer } = homeStore.getState()
@@ -488,29 +527,93 @@ const Character = () => {
     }
   }
 
+  // プロンプトファイルを保存する関数
+  const handleSavePromptFile = async (characterId: 'A' | 'B') => {
+    const filePath = characterId === 'A' ? promptFileAPath : promptFileBPath
+    const content = characterId === 'A' ? promptFileAContent : promptFileBContent
+    
+    try {
+      const response = await fetch('/api/save-prompt', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ filePath, content }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || 'Failed to save prompt file')
+      }
+
+      toastStore.getState().addToast({
+        message: `${characterId === 'A' ? characterAName : characterBName}のプロンプトファイルを保存しました`,
+        type: 'success',
+        tag: `prompt-save-${characterId}`,
+      })
+    } catch (error) {
+      console.error('Error saving prompt file:', error)
+      toastStore.getState().addToast({
+        message: `プロンプトファイルの保存に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        type: 'error',
+        tag: `prompt-save-error-${characterId}`,
+      })
+    }
+  }
+
   return (
     <>
-      <div className="flex items-center mb-6">
-        <Image
-          src="/images/setting-icons/character-settings.svg"
-          alt="Character Settings"
-          width={24}
-          height={24}
-          className="mr-2"
-        />
-        <h2 className="text-2xl font-bold">{t('CharacterSettings')}</h2>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center">
+          <Image
+            src="/images/setting-icons/character-settings.svg"
+            alt="Character Settings"
+            width={24}
+            height={24}
+            className="mr-2"
+          />
+          <h2 className="text-2xl font-bold">{t('CharacterSettings')}</h2>
+        </div>
+        <SaveButton settingsToSave={{
+          NEXT_PUBLIC_CHARACTER_A_NAME: characterAName,
+          NEXT_PUBLIC_CHARACTER_B_NAME: characterBName,
+                  NEXT_PUBLIC_SELECTED_LIVE2D_PATH_A: selectedLive2DPathA,
+                  NEXT_PUBLIC_SELECTED_LIVE2D_PATH_B: selectedLive2DPathB,
+                  NEXT_PUBLIC_SELECTED_VRM_PATH: selectedVrmPath,
+                  NEXT_PUBLIC_MODEL_TYPE: modelType,
+                  NEXT_PUBLIC_LIVE2D_BOUNCE_ENABLED: live2dBounceEnabled ? 'true' : 'false',
+                  NEXT_PUBLIC_LIVE2D_BOUNCE_SPEED: live2dBounceSpeed.toString(),
+                  NEXT_PUBLIC_LIVE2D_BOUNCE_AMOUNT: live2dBounceAmount.toString(),
+        }} />
       </div>
       <div className="">
         <div className="mb-4 text-xl font-bold">{t('CharacterName')}</div>
-        <input
-          className="text-ellipsis px-4 py-2 w-col-span-2 bg-white hover:bg-white-hover rounded-lg"
-          type="text"
-          placeholder={t('CharacterName')}
-          value={characterName}
-          onChange={(e) =>
-            settingsStore.setState({ characterName: e.target.value })
-          }
-        />
+        <div className="space-y-2">
+          <div>
+            <label className="block text-sm font-medium mb-1">キャラクターA（アイリス）</label>
+            <input
+              className="text-ellipsis px-4 py-2 w-full bg-white hover:bg-white-hover rounded-lg"
+              type="text"
+              placeholder="キャラクターAの名前"
+              value={characterAName}
+              onChange={(e) =>
+                settingsStore.setState({ characterAName: e.target.value })
+              }
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">キャラクターB（フィオナ）</label>
+            <input
+              className="text-ellipsis px-4 py-2 w-full bg-white hover:bg-white-hover rounded-lg"
+              type="text"
+              placeholder="キャラクターBの名前"
+              value={characterBName}
+              onChange={(e) =>
+                settingsStore.setState({ characterBName: e.target.value })
+              }
+            />
+          </div>
+        </div>
 
         <div className="mt-6 mb-4 text-xl font-bold">
           {t('CharacterModelLabel')}
@@ -542,22 +645,54 @@ const Character = () => {
 
         {modelType === 'vrm' ? (
           <>
-            <select
-              className="text-ellipsis px-4 py-2 w-col-span-2 bg-white hover:bg-white-hover rounded-lg"
-              value={selectedVrmPath}
-              onChange={(e) => {
-                const path = e.target.value
-                settingsStore.setState({ selectedVrmPath: path })
-                const { viewer } = homeStore.getState()
-                viewer.loadVrm(path)
-              }}
-            >
-              {vrmFiles.map((file) => (
-                <option key={file} value={`/vrm/${file}`}>
-                  {file.replace('.vrm', '')}
-                </option>
-              ))}
-            </select>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">キャラクターA（アイリス）のVRMモデル</label>
+                <select
+                  className="text-ellipsis px-4 py-2 w-full bg-white hover:bg-white-hover rounded-lg"
+                  value={selectedVrmPath}
+                  onChange={(e) => {
+                    const path = e.target.value
+                    settingsStore.setState({ selectedVrmPath: path })
+                    const { viewer } = homeStore.getState()
+                    viewer.loadVrm(path)
+                  }}
+                >
+                  {vrmFiles.length === 0 ? (
+                    <option value="">読み込み中...</option>
+                  ) : (
+                    vrmFiles.map((file) => (
+                      <option key={file} value={`/vrm/${file}`}>
+                        {file.replace('.vrm', '')}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">キャラクターB（フィオナ）のVRMモデル</label>
+                <select
+                  className="text-ellipsis px-4 py-2 w-full bg-white hover:bg-white-hover rounded-lg"
+                  value={selectedVrmPath}
+                  onChange={(e) => {
+                    const path = e.target.value
+                    settingsStore.setState({ selectedVrmPath: path })
+                    const { viewer } = homeStore.getState()
+                    viewer.loadVrm(path)
+                  }}
+                >
+                  {vrmFiles.length === 0 ? (
+                    <option value="">読み込み中...</option>
+                  ) : (
+                    vrmFiles.map((file) => (
+                      <option key={file} value={`/vrm/${file}`}>
+                        {file.replace('.vrm', '')}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+            </div>
 
             <div className="my-4">
               <TextButton
@@ -584,57 +719,138 @@ const Character = () => {
             <div className="my-4 whitespace-pre-line">
               {t('Live2D.FileInfo')}
             </div>
-            <select
-              className="text-ellipsis px-4 py-2 w-col-span-2 bg-white hover:bg-white-hover rounded-lg mb-2"
-              value={selectedLive2DPath}
-              onChange={(e) => {
-                const path = e.target.value
-                settingsStore.setState({ selectedLive2DPath: path })
-              }}
-            >
-              {live2dModels.map((model) => (
-                <option key={model.path} value={model.path}>
-                  {model.name}
-                </option>
-              ))}
-            </select>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">キャラクターA（アイリス）のLive2Dモデル</label>
+                <select
+                  className="text-ellipsis px-4 py-2 w-full bg-white hover:bg-white-hover rounded-lg mb-2"
+                  value={selectedLive2DPathA}
+                  onChange={(e) => {
+                    const path = e.target.value
+                    settingsStore.setState({ selectedLive2DPathA: path })
+                  }}
+                >
+                  {live2dModels.length === 0 ? (
+                    <option value="">読み込み中...</option>
+                  ) : (
+                    live2dModels.map((model) => (
+                      <option key={model.path} value={model.path}>
+                        {model.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+                {selectedLive2DPathA && (
+                  <div className="mt-2 text-sm text-gray-500">
+                    選択中: {live2dModels.find(m => m.path === selectedLive2DPathA)?.name || selectedLive2DPathA}
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">キャラクターB（フィオナ）のLive2Dモデル</label>
+                <select
+                  className="text-ellipsis px-4 py-2 w-full bg-white hover:bg-white-hover rounded-lg mb-2"
+                  value={selectedLive2DPathB}
+                  onChange={(e) => {
+                    const path = e.target.value
+                    settingsStore.setState({ selectedLive2DPathB: path })
+                  }}
+                >
+                  {live2dModels.length === 0 ? (
+                    <option value="">読み込み中...</option>
+                  ) : (
+                    live2dModels.map((model) => (
+                      <option key={model.path} value={model.path}>
+                        {model.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+                {selectedLive2DPathB && (
+                  <div className="mt-2 text-sm text-gray-500">
+                    選択中: {live2dModels.find(m => m.path === selectedLive2DPathB)?.name || selectedLive2DPathB}
+                  </div>
+                )}
+              </div>
+            </div>
             <div className="my-4">
               <Live2DSettingsForm />
             </div>
           </>
         )}
 
-        {/* Character Position Controls */}
-        <div className="my-6">
-          <div className="text-xl font-bold mb-4">{t('CharacterPosition')}</div>
-          <div className="mb-4">{t('CharacterPositionInfo')}</div>
-          <div className="mb-2 text-sm font-medium">
-            {t('CurrentStatus')}:{' '}
-            <span className="font-bold">
-              {fixedCharacterPosition
-                ? t('PositionFixed')
-                : t('PositionNotFixed')}
-            </span>
+        {/* Character Position Controls - A/B分離 */}
+        <div className="my-6 space-y-6">
+          <div>
+            <div className="text-xl font-bold mb-4">キャラクターA（アイリス）の位置設定</div>
+            <div className="mb-4">{t('CharacterPositionInfo')}</div>
+            <div className="mb-2 text-sm font-medium">
+              {t('CurrentStatus')}:{' '}
+              <span className="font-bold">
+                {fixedCharacterPosition
+                  ? t('PositionFixed')
+                  : t('PositionNotFixed')}
+              </span>
+            </div>
+            <div className="mb-4 text-sm">
+              現在の位置: X={characterPositionA.x.toFixed(0)}, Y={characterPositionA.y.toFixed(0)}, スケール={characterPositionA.scale.toFixed(2)}
+            </div>
+            <div className="flex gap-4 md:flex-row flex-col">
+              <button
+                onClick={() => handlePositionAction('fix')}
+                className="px-4 py-3 text-theme font-medium bg-primary hover:bg-primary-hover active:bg-primary-press rounded-lg transition-colors duration-200 md:rounded-full md:px-6 md:py-2"
+              >
+                {t('FixPosition')}
+              </button>
+              <button
+                onClick={() => handlePositionAction('unfix')}
+                className="px-4 py-3 text-theme font-medium bg-primary hover:bg-primary-hover active:bg-primary-press rounded-lg transition-colors duration-200 md:rounded-full md:px-6 md:py-2"
+              >
+                {t('UnfixPosition')}
+              </button>
+              <button
+                onClick={() => handlePositionAction('reset')}
+                className="px-4 py-3 text-theme font-medium bg-primary hover:bg-primary-hover active:bg-primary-press rounded-lg transition-colors duration-200 md:rounded-full md:px-6 md:py-2"
+              >
+                {t('ResetPosition')}
+              </button>
+            </div>
           </div>
-          <div className="flex gap-4 md:flex-row flex-col">
-            <button
-              onClick={() => handlePositionAction('fix')}
-              className="px-4 py-3 text-theme font-medium bg-primary hover:bg-primary-hover active:bg-primary-press rounded-lg transition-colors duration-200 md:rounded-full md:px-6 md:py-2"
-            >
-              {t('FixPosition')}
-            </button>
-            <button
-              onClick={() => handlePositionAction('unfix')}
-              className="px-4 py-3 text-theme font-medium bg-primary hover:bg-primary-hover active:bg-primary-press rounded-lg transition-colors duration-200 md:rounded-full md:px-6 md:py-2"
-            >
-              {t('UnfixPosition')}
-            </button>
-            <button
-              onClick={() => handlePositionAction('reset')}
-              className="px-4 py-3 text-theme font-medium bg-primary hover:bg-primary-hover active:bg-primary-press rounded-lg transition-colors duration-200 md:rounded-full md:px-6 md:py-2"
-            >
-              {t('ResetPosition')}
-            </button>
+          
+          <div>
+            <div className="text-xl font-bold mb-4">キャラクターB（フィオナ）の位置設定</div>
+            <div className="mb-4">{t('CharacterPositionInfo')}</div>
+            <div className="mb-2 text-sm font-medium">
+              {t('CurrentStatus')}:{' '}
+              <span className="font-bold">
+                {fixedCharacterPosition
+                  ? t('PositionFixed')
+                  : t('PositionNotFixed')}
+              </span>
+            </div>
+            <div className="mb-4 text-sm">
+              現在の位置: X={characterPositionB.x.toFixed(0)}, Y={characterPositionB.y.toFixed(0)}, スケール={characterPositionB.scale.toFixed(2)}
+            </div>
+            <div className="flex gap-4 md:flex-row flex-col">
+              <button
+                onClick={() => handlePositionAction('fix')}
+                className="px-4 py-3 text-theme font-medium bg-primary hover:bg-primary-hover active:bg-primary-press rounded-lg transition-colors duration-200 md:rounded-full md:px-6 md:py-2"
+              >
+                {t('FixPosition')}
+              </button>
+              <button
+                onClick={() => handlePositionAction('unfix')}
+                className="px-4 py-3 text-theme font-medium bg-primary hover:bg-primary-hover active:bg-primary-press rounded-lg transition-colors duration-200 md:rounded-full md:px-6 md:py-2"
+              >
+                {t('UnfixPosition')}
+              </button>
+              <button
+                onClick={() => handlePositionAction('reset')}
+                className="px-4 py-3 text-theme font-medium bg-primary hover:bg-primary-hover active:bg-primary-press rounded-lg transition-colors duration-200 md:rounded-full md:px-6 md:py-2"
+              >
+                {t('ResetPosition')}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -678,7 +894,55 @@ const Character = () => {
             {t('CharacterSettingsInfo')}
           </div>
         </div>
-        <div className="my-4 whitespace-pre-line">
+
+        {/* プロンプトファイル編集セクション */}
+        <div className="my-6 space-y-6">
+          <div className="border border-gray-300 rounded-lg p-4 bg-white bg-opacity-50">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="text-lg font-bold">{characterAName} のプロンプトファイル</div>
+                <div className="text-sm text-text2">{promptFileAPath}</div>
+              </div>
+              <TextButton onClick={() => handleSavePromptFile('A')}>
+                保存
+              </TextButton>
+            </div>
+            {isLoadingPrompt ? (
+              <div className="text-center py-4">読み込み中...</div>
+            ) : (
+              <textarea
+                value={promptFileAContent}
+                onChange={(e) => setPromptFileAContent(e.target.value)}
+                className="px-3 py-2 bg-white border border-gray-300 rounded-md w-full h-64 text-sm font-mono"
+                placeholder="プロンプトファイルの内容を入力してください..."
+              />
+            )}
+          </div>
+
+          <div className="border border-gray-300 rounded-lg p-4 bg-white bg-opacity-50">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <div className="text-lg font-bold">{characterBName} のプロンプトファイル</div>
+                <div className="text-sm text-text2">{promptFileBPath}</div>
+              </div>
+              <TextButton onClick={() => handleSavePromptFile('B')}>
+                保存
+              </TextButton>
+            </div>
+            {isLoadingPrompt ? (
+              <div className="text-center py-4">読み込み中...</div>
+            ) : (
+              <textarea
+                value={promptFileBContent}
+                onChange={(e) => setPromptFileBContent(e.target.value)}
+                className="px-3 py-2 bg-white border border-gray-300 rounded-md w-full h-64 text-sm font-mono"
+                placeholder="プロンプトファイルの内容を入力してください..."
+              />
+            )}
+          </div>
+        </div>
+        {/* キャラクタープリセット機能は現在使用していないため、非表示 */}
+        {/* <div className="my-4 whitespace-pre-line">
           {t('CharacterpresetInfo')}
         </div>
         <div className="my-6 mb-2">
@@ -782,6 +1046,8 @@ const Character = () => {
             )
           })}
         </div>
+      </div>
+        */}
       </div>
     </>
   )
