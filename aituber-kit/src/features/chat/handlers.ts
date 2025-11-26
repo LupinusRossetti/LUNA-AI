@@ -143,11 +143,10 @@ const handleSpeakAndStateUpdateForCharacter = (
     return
   }
 
-  // TODO: キャラクターA/B別々の音声設定を使用する（タスク4で実装）
-  // 現時点では従来のspeakCharacterを使用
+  // キャラクターA/B別々の音声設定を使用
   speakCharacter(
     sessionId,
-    { message: sentence, emotion },
+    { message: sentence, emotion, characterId: character },
     () => {
       hs.incrementChatProcessingCount()
       currentSlideMessagesRef.current.push(sentence)

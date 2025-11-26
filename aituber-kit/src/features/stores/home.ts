@@ -14,7 +14,9 @@ export interface PersistedState {
 
 export interface TransientState {
   viewer: Viewer;
-  live2dViewer: any;
+  live2dViewer: any; // レガシー対応（単体モード用）
+  live2dViewerA: any; // 掛け合いモード用: キャラクターA（アイリス）
+  live2dViewerB: any; // 掛け合いモード用: キャラクターB（フィオナ）
   slideMessages: string[];
   chatProcessing: boolean;
   chatProcessingCount: number;
@@ -75,7 +77,9 @@ const homeStore = create<HomeState>()(
       // 一時状態
       // ===============================
       viewer: new Viewer(),
-      live2dViewer: null,
+      live2dViewer: null, // レガシー対応（単体モード用）
+      live2dViewerA: null, // 掛け合いモード用: キャラクターA（アイリス）
+      live2dViewerB: null, // 掛け合いモード用: キャラクターB（フィオナ）
       slideMessages: [],
       chatProcessing: false,
       chatProcessingCount: 0,

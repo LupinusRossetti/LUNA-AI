@@ -59,32 +59,46 @@ export function preprocessMessage(
 
 async function synthesizeVoice(
   talk: Talk,
-  voiceType: AIVoice
+  voiceType: AIVoice,
+  characterId?: 'A' | 'B'
 ): Promise<ArrayBuffer | null> {
   const ss = settingsStore.getState()
 
   try {
     switch (voiceType) {
       case 'voicevox':
+        // 掛け合いモード: characterIdに応じてA/B別々の設定を使用
+        const voicevoxSpeaker = characterId === 'A' ? ss.voicevoxSpeakerA : characterId === 'B' ? ss.voicevoxSpeakerB : ss.voicevoxSpeaker
+        const voicevoxSpeed = characterId === 'A' ? ss.voicevoxSpeedA : characterId === 'B' ? ss.voicevoxSpeedB : ss.voicevoxSpeed
+        const voicevoxPitch = characterId === 'A' ? ss.voicevoxPitchA : characterId === 'B' ? ss.voicevoxPitchB : ss.voicevoxPitch
+        const voicevoxIntonation = characterId === 'A' ? ss.voicevoxIntonationA : characterId === 'B' ? ss.voicevoxIntonationB : ss.voicevoxIntonation
         return await synthesizeVoiceVoicevoxApi(
           talk,
-          ss.voicevoxSpeaker,
-          ss.voicevoxSpeed,
-          ss.voicevoxPitch,
-          ss.voicevoxIntonation,
+          voicevoxSpeaker,
+          voicevoxSpeed,
+          voicevoxPitch,
+          voicevoxIntonation,
           ss.voicevoxServerUrl
         )
       case 'aivis_speech':
+        // 掛け合いモード: characterIdに応じてA/B別々の設定を使用
+        const aivisSpeaker = characterId === 'A' ? ss.aivisSpeechSpeakerA : characterId === 'B' ? ss.aivisSpeechSpeakerB : ss.aivisSpeechSpeaker
+        const aivisSpeed = characterId === 'A' ? ss.aivisSpeechSpeedA : characterId === 'B' ? ss.aivisSpeechSpeedB : ss.aivisSpeechSpeed
+        const aivisPitch = characterId === 'A' ? ss.aivisSpeechPitchA : characterId === 'B' ? ss.aivisSpeechPitchB : ss.aivisSpeechPitch
+        const aivisIntonation = characterId === 'A' ? ss.aivisSpeechIntonationScaleA : characterId === 'B' ? ss.aivisSpeechIntonationScaleB : ss.aivisSpeechIntonationScale
+        const aivisTempo = characterId === 'A' ? ss.aivisSpeechTempoDynamicsA : characterId === 'B' ? ss.aivisSpeechTempoDynamicsB : ss.aivisSpeechTempoDynamics
+        const aivisPrePhoneme = characterId === 'A' ? ss.aivisSpeechPrePhonemeLengthA : characterId === 'B' ? ss.aivisSpeechPrePhonemeLengthB : ss.aivisSpeechPrePhonemeLength
+        const aivisPostPhoneme = characterId === 'A' ? ss.aivisSpeechPostPhonemeLengthA : characterId === 'B' ? ss.aivisSpeechPostPhonemeLengthB : ss.aivisSpeechPostPhonemeLength
         return await synthesizeVoiceAivisSpeechApi(
           talk,
-          ss.aivisSpeechSpeaker,
-          ss.aivisSpeechSpeed,
-          ss.aivisSpeechPitch,
-          ss.aivisSpeechIntonationScale,
+          aivisSpeaker,
+          aivisSpeed,
+          aivisPitch,
+          aivisIntonation,
           ss.aivisSpeechServerUrl,
-          ss.aivisSpeechTempoDynamics,
-          ss.aivisSpeechPrePhonemeLength,
-          ss.aivisSpeechPostPhonemeLength
+          aivisTempo,
+          aivisPrePhoneme,
+          aivisPostPhoneme
         )
       default:
         return null
@@ -105,6 +119,8 @@ const createSpeakCharacter = () => {
     onStart?: () => void,
     onComplete?: () => void
   ) => {
+    // characterIdをtalkから取得（掛け合いモード対応）
+    const characterId = talk.characterId
     let called = false
     const ss = settingsStore.getState()
     onStart?.()
@@ -171,7 +187,9 @@ const createSpeakCharacter = () => {
           buffer = talk.buffer
           isNeedDecode = false
         } else if (talk.message !== '') {
-          buffer = await synthesizeVoice(talk, ss.selectVoice)
+          // 掛け合いモード: characterIdに応じてA/B別々の音声エンジンを選択
+          const voiceType = characterId === 'A' ? ss.selectVoiceA : characterId === 'B' ? ss.selectVoiceB : ss.selectVoice
+          buffer = await synthesizeVoice(talk, voiceType, characterId)
         } else {
           buffer = null
         }

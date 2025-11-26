@@ -24,6 +24,7 @@ export type Talk = {
   emotion: EmotionType
   message: string
   buffer?: ArrayBuffer
+  characterId?: 'A' | 'B' // 掛け合いモード用: キャラクターID
 }
 
 export const splitSentence = (text: string): string[] => {

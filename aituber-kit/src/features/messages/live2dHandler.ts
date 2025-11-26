@@ -12,7 +12,18 @@ export class Live2DHandler {
   ) {
     const hs = homeStore.getState()
     const ss = settingsStore.getState()
-    const live2dViewer = hs.live2dViewer
+    
+    // 掛け合いモード: characterIdに応じてA/B別々のLive2Dインスタンスを使用
+    const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
+    let live2dViewer: any = null
+    
+    if (isDialogueMode && talk.characterId) {
+      live2dViewer = talk.characterId === 'A' ? hs.live2dViewerA : hs.live2dViewerB
+    } else {
+      // 単体モード: レガシーのlive2dViewerを使用
+      live2dViewer = hs.live2dViewer
+    }
+    
     if (!live2dViewer) return
 
     let expression: string | undefined
@@ -131,20 +142,43 @@ export class Live2DHandler {
     })
   }
 
-  static async stopSpeaking() {
+  static async stopSpeaking(characterId?: 'A' | 'B') {
     const hs = homeStore.getState()
-    const live2dViewer = hs.live2dViewer
-    if (!live2dViewer) return
-    live2dViewer.stopSpeaking()
+    
+    // 掛け合いモード: characterIdに応じてA/B別々のLive2Dインスタンスを停止
+    const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
+    if (isDialogueMode && characterId) {
+      const live2dViewer = characterId === 'A' ? hs.live2dViewerA : hs.live2dViewerB
+      if (live2dViewer) {
+        live2dViewer.stopSpeaking()
+      }
+    } else {
+      // 単体モード: レガシーのlive2dViewerを停止
+      const live2dViewer = hs.live2dViewer
+      if (live2dViewer) {
+        live2dViewer.stopSpeaking()
+      }
+    }
   }
 
-  static async resetToIdle() {
+  static async resetToIdle(characterId?: 'A' | 'B') {
     // インターバルを停止
     Live2DHandler.stopIdleMotion()
 
     const hs = homeStore.getState()
     const ss = settingsStore.getState()
-    const live2dViewer = hs.live2dViewer
+    
+    // 掛け合いモード: characterIdに応じてA/B別々のLive2Dインスタンスをリセット
+    const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
+    let live2dViewer: any = null
+    
+    if (isDialogueMode && characterId) {
+      live2dViewer = characterId === 'A' ? hs.live2dViewerA : hs.live2dViewerB
+    } else {
+      // 単体モード: レガシーのlive2dViewerを使用
+      live2dViewer = hs.live2dViewer
+    }
+    
     if (!live2dViewer) return
 
     // Live2Dモデル以外の場合は早期リターン

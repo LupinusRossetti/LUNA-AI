@@ -150,6 +150,7 @@ export class SpeakQueue {
         try {
           const { audioBuffer, talk, isNeedDecode, onComplete } = task
           if (ss.modelType === 'live2d') {
+            // 掛け合いモード: characterIdをLive2DHandlerに渡す
             await Live2DHandler.speak(audioBuffer, talk, isNeedDecode)
           } else {
             await hs.viewer.model?.speak(audioBuffer, talk, isNeedDecode)
