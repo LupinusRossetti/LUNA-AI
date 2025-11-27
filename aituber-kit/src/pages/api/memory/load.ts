@@ -1,10 +1,7 @@
 import { NextResponse } from 'next/server'
 import { readFile } from 'fs/promises'
-import { join } from 'path'
 import { existsSync } from 'fs'
-
-const MEMORY_DIR = join(process.cwd(), 'data', 'memories')
-const MEMORY_JSON_FILE = join(MEMORY_DIR, 'memories.json')
+import { MEMORY_JSON_FILE } from './memoryFileUtils'
 
 export async function GET() {
   try {

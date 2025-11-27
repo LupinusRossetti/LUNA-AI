@@ -15,7 +15,7 @@ import webSocketStore from '@/features/stores/websocketStore'
 import i18next from 'i18next'
 import toastStore from '@/features/stores/toast'
 import { generateMessageId } from '@/utils/messageUtils'
-import { SYSTEM_PROMPT } from '@/features/constants/systemPromptConstants'
+import { info, error as logError } from '@/utils/logger'
 import { SpeakQueue, notifySpeechEnd } from '@/features/messages/speakQueue'
 import { extractCompleteXMLTags, ParsedDialogue } from '@/features/chat/xmlParser'
 
@@ -1382,12 +1382,32 @@ export const handleSendChatFn = () => async (
 
   const sessionId = generateSessionId()
 
-  // ---- スライドモードなど内部の特殊処理 ----
-  let systemPrompt = ss.systemPrompt || SYSTEM_PROMPT
-  
-  // ---- 掛け合いモード判定（暫定: 環境変数で判定） ----
-  // TODO: より適切な判定方法を実装（タスク3で実装予定）
-  const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
+  // メッセージ末尾に「サーチ」または「search」がある場合、サーチグラウンディングを強制有効化
+  // ただし、企画中（slideMode）は無効
+  let forceSearchGrounding = false
+  if (
+    !ss.slideMode &&
+    (newMessage.endsWith('サーチ') ||
+      newMessage.endsWith('さーち') ||
+      newMessage.endsWith('search') ||
+      newMessage.endsWith('Search') ||
+      newMessage.endsWith('SEARCH'))
+  ) {
+    forceSearchGrounding = true
+    info(
+      'メッセージ末尾の「サーチ」検出により、サーチグラウンディングを強制有効化',
+      undefined,
+      'handleSendChatFn'
+    )
+  }
+
+  // システムプロンプトを構築
+  const { buildSystemPrompt } = await import('./promptBuilder')
+  let systemPrompt = await buildSystemPrompt(
+    characterId,
+    forceSearchGrounding,
+    newMessage
+  )
   
   // ---- 掛け合いモード時はアイリスとフィオナの両方のプロンプトを使用 ----
   if (isDialogueMode) {
@@ -1643,46 +1663,23 @@ ${systemPromptB}
 
   try {
     await processAIResponse(messages, characterId)
-    
+
     // ========================================================
     // 長期記憶システム: 会話から記憶を抽出して保存
     // ========================================================
-    // 注意: processAIResponseは非同期で実行されるため、
-    // 実際の記憶抽出は応答が完了した後に行う必要がある
-    // ここではタイマーで遅延実行する（暫定実装）
-    if (typeof window !== 'undefined') {
-      setTimeout(async () => {
-        try {
-          const { extractMemoriesFromConversation } = await import('@/features/memory/memoryExtractor')
-          const currentChatLogAfter = homeStore.getState().chatLog
-          
-          // 最新のアシスタントメッセージを取得
-          const latestAssistantMessage = currentChatLogAfter
-            .filter(msg => msg.role === 'assistant' || msg.role === 'assistant-A' || msg.role === 'assistant-B')
-            .slice(-1)[0]
-          
-          if (latestAssistantMessage) {
-            const assistantText = typeof latestAssistantMessage.content === 'string' 
-              ? latestAssistantMessage.content 
-              : latestAssistantMessage.content?.[0]?.text || ''
-            
-            if (assistantText) {
-              const extractedMemories = extractMemoriesFromConversation(newMessage, assistantText)
-              if (extractedMemories.length > 0) {
-                console.log('[handlers] 会話から記憶を抽出:', {
-                  count: extractedMemories.length,
-                  memories: extractedMemories.map(m => ({ type: m.type, content: m.content.substring(0, 30) }))
-                })
-              }
-            }
-          }
-        } catch (error) {
-          console.error('[handlers] 記憶抽出に失敗:', error)
-        }
-      }, 2000) // 2秒後に実行（応答が完了していることを想定）
+    const ssAfter = settingsStore.getState()
+    const isMemoryEnabled =
+      ssAfter.memoryEnabled ||
+      process.env.NEXT_PUBLIC_MEMORY_ENABLED === 'true'
+
+    if (isMemoryEnabled) {
+      const { extractMemoriesFromChat } = await import(
+        '@/features/memory/memoryExtractionHandler'
+      )
+      extractMemoriesFromChat(newMessage)
     }
   } catch (e) {
-    console.error(e)
+    logError('processAIResponseエラー', e, 'handleSendChatFn')
     homeStore.setState({ chatProcessing: false })
   }
 }
