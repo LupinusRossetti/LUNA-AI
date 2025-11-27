@@ -117,7 +117,8 @@ const createSpeakCharacter = () => {
     sessionId: string,
     talk: Talk,
     onStart?: () => void,
-    onComplete?: () => void
+    onComplete?: () => void,
+    onPlayStart?: () => void // 実際に音声が再生される前に呼ばれる（speakQueueから）
   ) => {
     // characterIdをtalkから取得（掛け合いモード対応）
     const characterId = talk.characterId
@@ -244,6 +245,7 @@ const createSpeakCharacter = () => {
           audioBuffer: result.buffer,
           talk,
           isNeedDecode: result.isNeedDecode,
+          onStart: onPlayStart, // 実際に音声が再生される前に呼ばれる
           onComplete: guardedOnComplete, // Pass the guarded function
         })
       })

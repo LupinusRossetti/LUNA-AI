@@ -6,6 +6,8 @@ export const messageSelectors = {
   getTextAndImageMessages: (messages: Message[]): Message[] => {
     return messages.filter((message): boolean => {
       if (!message.content) return false
+      // システムメッセージも含める
+      if (message.role === 'system') return true
       return (
         typeof message.content === 'string' || Array.isArray(message.content)
       )

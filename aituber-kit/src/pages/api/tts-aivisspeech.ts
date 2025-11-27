@@ -61,8 +61,18 @@ export default async function handler(
 
     res.setHeader('Content-Type', 'audio/wav')
     synthesisResponse.data.pipe(res)
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in AivisSpeech TTS:', error)
-    res.status(500).json({ error: 'Internal Server Error' })
+    console.error('Error details:', {
+      message: error?.message,
+      response: error?.response?.data,
+      status: error?.response?.status,
+      url: error?.config?.url
+    })
+    res.status(500).json({ 
+      error: 'Internal Server Error',
+      details: error?.message || 'Unknown error',
+      responseData: error?.response?.data
+    })
   }
 }

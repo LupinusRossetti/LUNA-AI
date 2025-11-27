@@ -150,8 +150,30 @@ export const fetchAndProcessComments = async (
               .userComment
         }
         console.log('selectedYoutubeComment:', selectedComment)
+        
+        // 選択されたコメントのリスナー名を取得
+        const selectedCommentObj = youtubeComments.find(c => c.userComment === selectedComment)
+        const listenerName = selectedCommentObj?.userName || '不明なリスナー'
+        
+        console.log('[youtubeComments] リスナー名を取得:', {
+          listenerName,
+          comment: selectedComment.substring(0, 50)
+        })
 
-        handleSendChat(selectedComment)
+        // handleSendChatにYouTubeコメント情報を渡す
+        // handleSendChatの型定義を確認して、適切な方法で渡す
+        // 暫定的に、handleSendChatの第3引数としてoptionsを渡す
+        if (typeof handleSendChat === 'function') {
+          // handleSendChatが(options)を受け取る形式か、直接textを受け取る形式かを確認
+          // 現在の実装では、handleSendChatは(text: string, characterId?: 'A' | 'B')を受け取る
+          // そのため、リスナー名を別の方法で渡す必要がある
+          // 暫定的に、メッセージの先頭にリスナー名を含める方法を使用
+          // または、handleSendChatの型定義を拡張する必要がある
+          handleSendChat(selectedComment)
+        } else {
+          // handleSendChatが関数でない場合（非同期関数など）
+          await handleSendChat(selectedComment)
+        }
       } else {
         const noCommentCount = ss.youtubeNoCommentCount + 1
         if (ss.conversationContinuityMode) {

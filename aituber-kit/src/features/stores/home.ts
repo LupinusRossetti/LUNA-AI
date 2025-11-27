@@ -117,6 +117,11 @@ const homeStore = create<HomeState>()(
               id: generateMessageId(),
               role: message.role,
               content: message.content,
+              hasSearchGrounding: message.hasSearchGrounding,
+              timestamp: message.timestamp,
+              youtube: message.youtube,
+              audio: message.audio,
+              type: message.type,
             };
 
             return { chatLog: [...current, newMsg] };
@@ -129,10 +134,30 @@ const homeStore = create<HomeState>()(
             return { chatLog: current };
           }
 
+          // message.idが提供されている場合、既存のメッセージを更新
+          if (message.id) {
+            const existingIndex = current.findIndex((m) => m.id === message.id);
+            if (existingIndex !== -1) {
+              const updated = [...current];
+              updated[existingIndex] = {
+                ...updated[existingIndex],
+                ...message,
+                content: message.content ?? updated[existingIndex].content,
+              };
+              return { chatLog: updated };
+            }
+          }
+
+          // 新規メッセージを追加
           const newMessage: Message = {
-            id: generateMessageId(),
+            id: message.id ?? generateMessageId(),
             role: message.role,
             content: message.content,
+            hasSearchGrounding: message.hasSearchGrounding,
+            timestamp: message.timestamp,
+            youtube: message.youtube,
+            audio: message.audio,
+            type: message.type,
           };
           return { chatLog: [...current, newMessage] };
         });

@@ -92,6 +92,7 @@ export const ChatLog = () => {
                   characterAName={characterAName}
                   characterBName={characterBName}
                   isYoutube={isYoutube}
+                  msg={msg}
                 />
               ) : (
                 <>
@@ -102,6 +103,7 @@ export const ChatLog = () => {
                     characterAName={characterAName}
                     characterBName={characterBName}
                     isYoutube={isYoutube}
+                    msg={msg}
                   />
                   <ChatImage
                     role={msg.role}
@@ -137,6 +139,7 @@ const Chat = ({
   characterAName,
   characterBName,
   isYoutube,
+  msg,
 }: {
   role: string
   message: string
@@ -144,6 +147,7 @@ const Chat = ({
   characterAName: string
   characterBName: string
   isYoutube: boolean
+  msg: any // Message型（hasSearchGroundingを含む）
 }) => {
   // 感情タグ除去
   const emotionPattern = new RegExp(`\\[(${EMOTIONS.join('|')})\\]\\s*`, 'gi')
@@ -155,16 +159,36 @@ const Chat = ({
 
   if (role === 'user') {
     ui = isYoutube ? uiColors.listener : uiColors.streamer
+  } else if (role === 'system') {
+    // システムメッセージ用のグレー背景
+    ui = {
+      nameBg: '#808080', // グレー
+      nameColor: '#ffffff',
+      bg: '#f5f5f5',
+      text: '#333333',
+      name: 'システム',
+    }
+    displayCharacterName = 'システム'
   } else if (role === 'assistant-A') {
     ui = uiColors.characterA
-    displayCharacterName = characterAName
+    displayCharacterName = characterAName || 'アイリス・ロゼッティ'
   } else if (role === 'assistant-B') {
     ui = uiColors.characterB
-    displayCharacterName = characterBName
-  } else {
+    displayCharacterName = characterBName || 'フィオナ・ロゼッティ'
+  } else if (role === 'assistant') {
     // fallback (legacy assistant)
     const APP_ID = process.env.NEXT_PUBLIC_APP_ID
     ui = APP_ID === 'A' ? uiColors.characterA : uiColors.characterB
+    displayCharacterName = APP_ID === 'A' ? (characterAName || 'アイリス・ロゼッティ') : (characterBName || 'フィオナ・ロゼッティ')
+  } else {
+    // その他のroleの場合、デフォルトでAを使用
+    ui = uiColors.characterA
+    displayCharacterName = characterAName || 'アイリス・ロゼッティ'
+  }
+  
+  // サーチグラウンディングが使用された場合、名前の後ろに「(サーチ)」を追加
+  if (msg?.hasSearchGrounding && (role === 'assistant-A' || role === 'assistant-B')) {
+    displayCharacterName = `${displayCharacterName}(サーチ)`
   }
 
   // ---------- スライドアニメ ----------

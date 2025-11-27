@@ -33,10 +33,79 @@ const CODE_DELIMITER = '```'
 let externalAssistantMessageId: string | null = null
 
 /**
+ * Vercel AI SDKのメタデータを除去し、テキストコンテンツを抽出する関数
+ * f:{"messageId":"..."}, e:{...}, d:{...} などの形式を除去
+ * 0:"テキスト" 形式からは、テキストコンテンツを抽出
+ */
+const stripVercelMetadata = (text: string): string => {
+  if (!text) return text
+  
+  // エラーメッセージのパターンをチェック
+  // 3:"An error occurred." のような形式はエラーメッセージ
+  if (/^\d+:"An error occurred\."/.test(text.trim())) {
+    console.warn('[handlers] AIからエラーメッセージを受信:', text)
+    return '' // エラーメッセージは除去
+  }
+  
+  // 行に分割して処理
+  const lines = text.split('\n')
+  const cleanedLines: string[] = []
+  
+  for (const line of lines) {
+    const trimmedLine = line.trim()
+    
+    // メタデータ行をスキップ
+    // f:{"messageId":"..."} 形式
+    if (/^f:\{/.test(trimmedLine)) continue
+    // e:{...} 形式
+    if (/^e:\{/.test(trimmedLine)) continue
+    // d:{...} 形式
+    if (/^d:\{/.test(trimmedLine)) continue
+    
+    // 0:"テキスト" 形式からテキストコンテンツを抽出
+    // 注意: テキスト内に改行やエスケープ文字が含まれる可能性がある
+    const textMatch = trimmedLine.match(/^\d+:"(.+)"$/)
+    if (textMatch) {
+      // エスケープされた文字を復元
+      let extractedText = textMatch[1]
+      extractedText = extractedText.replace(/\\"/g, '"')
+      extractedText = extractedText.replace(/\\\\/g, '\\')
+      extractedText = extractedText.replace(/\\n/g, '\n')
+      cleanedLines.push(extractedText)
+      continue
+    }
+    
+    // 0:"テキスト（途中）" 形式（閉じ引用符がない場合）
+    const partialTextMatch = trimmedLine.match(/^\d+:"(.+)$/)
+    if (partialTextMatch) {
+      let extractedText = partialTextMatch[1]
+      extractedText = extractedText.replace(/\\"/g, '"')
+      extractedText = extractedText.replace(/\\\\/g, '\\')
+      extractedText = extractedText.replace(/\\n/g, '\n')
+      cleanedLines.push(extractedText)
+      continue
+    }
+    
+    // メタデータでない行は保持
+    cleanedLines.push(line)
+  }
+  
+  // 行を結合（空白を入れずに結合）
+  let cleaned = cleanedLines.join('')
+  // 連続する空白を整理（ただし、改行は保持）
+  cleaned = cleaned.replace(/[ \t]+/g, ' ').trim()
+  return cleaned
+}
+
+/**
  * 感情タグ [happy] などを UI 表示用に削除する
  */
 const stripEmotionTagsForDisplay = (text: string): string => {
-  return text.replace(/\[[^\]]+?\]/g, '').trim()
+  // まずVercel AI SDKのメタデータを除去
+  let cleaned = stripVercelMetadata(text)
+  // 次に感情タグを除去
+  cleaned = cleaned.replace(/\[[^\]]+?\]/g, '').trim()
+  return cleaned
 }
 
 /**
@@ -82,17 +151,32 @@ const handleSpeakAndStateUpdate = (
   sessionId: string,
   sentence: string,
   emotionTag: string,
-  currentSlideMessagesRef: { current: string[] }
+  currentSlideMessagesRef: { current: string[] },
+  characterId?: 'A' | 'B' // 掛け合いモード用
 ) => {
   const hs = homeStore.getState()
   const emotion = emotionTag.includes('[')
     ? (emotionTag.slice(1, -1).toLowerCase() as EmotionType)
     : 'neutral'
 
+  // Vercel AI SDKのメタデータを除去
+  const cleanedSentence = stripVercelMetadata(sentence)
+
+  // 「※検索したよ！」は読み上げなしで、会話ログにシステムメッセージとして追加
+  if (cleanedSentence.trim() === '※検索したよ！') {
+    // 会話ログにシステムメッセージとして追加
+    homeStore.getState().upsertMessage({
+      role: 'system',
+      content: '※検索したよ！',
+    })
+    // 読み上げはスキップ
+    return
+  }
+
   // 発話不要な記号列は無視
   if (
-    sentence === '' ||
-    sentence.replace(
+    cleanedSentence === '' ||
+    cleanedSentence.replace(
       /^[\s\u3000\t\n\r\[\(\{「［（【『〈《〔｛«‹〘〚〛〙›»〕》〉』】）］」\}\)\]'"''""・、。,.!?！？:：;；\-_=+~～*＊@＠#＃$＄%％^＾&＆|｜\\＼/／`｀]+$/gu,
       ''
     ) === ''
@@ -102,7 +186,7 @@ const handleSpeakAndStateUpdate = (
 
   speakCharacter(
     sessionId,
-    { message: sentence, emotion },
+    { message: cleanedSentence, emotion, characterId },
     () => {
       hs.incrementChatProcessingCount()
       currentSlideMessagesRef.current.push(sentence)
@@ -128,14 +212,45 @@ const handleSpeakAndStateUpdateForCharacter = (
   sentence: string,
   emotion: EmotionType,
   character: 'A' | 'B',
-  currentSlideMessagesRef: { current: string[] }
+  currentSlideMessagesRef: { current: string[] },
+  hasSearchGrounding: boolean = false // サーチグラウンディング情報
 ) => {
   const hs = homeStore.getState()
 
+  // XMLタグを除去（<A emotion="...">や<B emotion="...">などの形式）
+  let cleanedSentence = sentence
+  cleanedSentence = cleanedSentence.replace(/<[AB](?:\s+emotion=["'][^"']*["'])?>/gi, '')
+  cleanedSentence = cleanedSentence.replace(/<\/[AB]>/gi, '')
+  
+  // Vercel AI SDKのメタデータを除去
+  cleanedSentence = stripVercelMetadata(cleanedSentence)
+  
+  // 残っている可能性のある引用符を除去
+  // 1. 先頭・末尾の引用符を除去
+  cleanedSentence = cleanedSentence.replace(/^["']+|["']+$/g, '')
+  // 2. 数字+"形式（0:"や1:"など）の残骸を除去
+  cleanedSentence = cleanedSentence.replace(/^\d+["']/g, '')
+  // 3. 日本語テキスト内に不自然に入っている引用符を除去
+  // パターン: 文字列の直後に引用符が来る場合（例: "はい"、バージョン7."6、それ"じゃあ）
+  // ただし、日本語の句読点の前後や、通常の引用符の使用は保持
+  cleanedSentence = cleanedSentence.replace(/([あ-んア-ン一-龯ー])(["'])([あ-んア-ン一-龯ー])/g, '$1$3') // 日本語文字間の引用符（例: それ"じゃあ → それじゃあ）
+  cleanedSentence = cleanedSentence.replace(/([あ-んア-ン一-龯ー])(["'])([、。！？])/g, '$1$3') // 日本語文字と句読点の間の引用符
+  cleanedSentence = cleanedSentence.replace(/([、。！？])(["'])([あ-んア-ン一-龯ー])/g, '$1$3') // 句読点と日本語文字の間の引用符
+  cleanedSentence = cleanedSentence.replace(/(\d)(["'])(\d)/g, '$1$3') // 数字間の引用符（例: 7."6 → 7.6）
+  cleanedSentence = cleanedSentence.replace(/([あ-んア-ン一-龯ー])(["'])([「」『』])/g, '$1$3') // 日本語文字と日本語引用符の間の引用符
+  cleanedSentence = cleanedSentence.replace(/([「」『』])(["'])([あ-んア-ン一-龯ー])/g, '$1$3') // 日本語引用符と日本語文字の間の引用符
+  // 4. 文末の引用符を除去（例: 調べてみますね。" → 調べてみますね。）
+  cleanedSentence = cleanedSentence.replace(/([あ-んア-ン一-龯ー。！？])(["'])$/g, '$1')
+
+  // 「※検索したよ！」は読み上げなしでスキップ
+  if (cleanedSentence.trim() === '※検索したよ！') {
+    return
+  }
+
   // 発話不要な記号列は無視
   if (
-    sentence === '' ||
-    sentence.replace(
+    cleanedSentence === '' ||
+    cleanedSentence.replace(
       /^[\s\u3000\t\n\r\[\(\{「［（【『〈《〔｛«‹〘〚〛〙›»〕》〉』】）］」\}\)\]'"''""・、。,.!?！？:：;；\-_=+~～*＊@＠#＃$＄%％^＾&＆|｜\\＼/／`｀]+$/gu,
       ''
     ) === ''
@@ -143,13 +258,20 @@ const handleSpeakAndStateUpdateForCharacter = (
     return
   }
 
+  // 各XMLタグごとに新しいメッセージIDを生成
+  const messageId = generateMessageId()
+  const messageRole = character === 'A' ? 'assistant-A' : 'assistant-B'
+  
   // キャラクターA/B別々の音声設定を使用
+  // メッセージは実際に音声が再生される前に追加（読み上げと同期）
+  // onStartは音声合成開始時、実際の再生はspeakQueueで行われる
   speakCharacter(
     sessionId,
-    { message: sentence, emotion, characterId: character },
+    { message: cleanedSentence, emotion, characterId: character },
     () => {
+      // 音声合成開始時（まだ再生されていない）
       hs.incrementChatProcessingCount()
-      currentSlideMessagesRef.current.push(sentence)
+      currentSlideMessagesRef.current.push(cleanedSentence)
       homeStore.setState({
         slideMessages: [...currentSlideMessagesRef.current],
       })
@@ -159,6 +281,29 @@ const handleSpeakAndStateUpdateForCharacter = (
       currentSlideMessagesRef.current.shift()
       homeStore.setState({
         slideMessages: [...currentSlideMessagesRef.current],
+      })
+    },
+    () => {
+      // 実際に音声が再生される前にメッセージを追加（speakQueueから呼ばれる）
+      console.log('[handlers] メッセージを追加します', {
+        messageId,
+        role: messageRole,
+        content: cleanedSentence.trim().substring(0, 50),
+        hasSearchGrounding,
+        character
+      })
+      // デバッグ用：詳細を個別に出力
+      console.log('[handlers] メッセージ追加詳細:', 
+        `messageId=${messageId}, ` +
+        `role=${messageRole}, ` +
+        `hasSearchGrounding=${hasSearchGrounding}, ` +
+        `character=${character}`
+      )
+      homeStore.getState().upsertMessage({
+        id: messageId,
+        role: messageRole,
+        content: cleanedSentence.trim(),
+        hasSearchGrounding, // サーチグラウンディング情報を保存
       })
     }
   )
@@ -199,7 +344,8 @@ const speakWholeTextWithEmotions = (text: string) => {
         sessionId,
         sentence,
         currentEmotionTag,
-        currentSlideMessagesRef
+        currentSlideMessagesRef,
+        defaultCharacterId
       )
       localRemaining = afterSentence
       if (!afterSentence) currentEmotionTag = ''
@@ -209,7 +355,8 @@ const speakWholeTextWithEmotions = (text: string) => {
           sessionId,
           localRemaining,
           currentEmotionTag,
-          currentSlideMessagesRef
+          currentSlideMessagesRef,
+          defaultCharacterId
         )
       }
       break
@@ -233,7 +380,7 @@ export const speakMessageHandler = async (receivedMessage: string) => {
 // 内部 AI（AItuberKit モード）
 // ============================================================
 
-export const processAIResponse = async (messages: Message[]) => {
+export const processAIResponse = async (messages: Message[], initialCharacterId?: 'A' | 'B') => {
   const ss = settingsStore.getState()
 
   if (ss.externalLinkageMode) {
@@ -274,12 +421,62 @@ export const processAIResponse = async (messages: Message[]) => {
   let isCodeBlock = false
   let codeBlockContent = ''
   let isXMLMode = false // XML形式モードかどうか
+  let hasReceivedActualContent = false // 実際のコンテンツが来たかどうか
+  let allReceivedChunks = '' // デバッグ用：全てのチャンクを保存
+  let hasSearchGrounding = false // サーチグラウンディングが使用されたかどうか
+  let lastProcessedCharacter: 'A' | 'B' | null = null // 最後に処理したキャラクター（交互チェック用）
+  let pendingDialogue: { character: 'A' | 'B', emotion: EmotionType, text: string, hasSearchGrounding: boolean } | null = null // 同じキャラクターの連続セリフをまとめるためのバッファ
+  let dialogueTurnCount = 0 // 掛け合いのターン数をカウント
+  
+  // 掛け合いモードの場合、initialCharacterIdを使用、なければデフォルトでキャラクターAとして処理
+  const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
+  const defaultCharacterId: 'A' | 'B' | undefined = isDialogueMode ? (initialCharacterId || 'A') : undefined
+  
+  console.log('[handlers] processAIResponse開始', {
+    isDialogueMode,
+    initialCharacterId,
+    defaultCharacterId
+  })
 
   try {
     while (true) {
       const { done, value } = await reader.read()
+      
+      // デバッグ用：全てのチャンクを保存
+      if (value) {
+        allReceivedChunks += value
+      }
 
       if (value) {
+        // メタデータ行をチェック（サーチグラウンディング情報）
+        // f:{"messageId":"0","hasSearchGrounding":true}\n の形式
+        const lines = value.split('\n')
+        for (const line of lines) {
+          const trimmedLine = line.trim()
+          if (trimmedLine.startsWith('f:{')) {
+            try {
+              const metadataStr = trimmedLine.substring(2) // "f:"を除去
+              const metadata = JSON.parse(metadataStr)
+              if (metadata.hasSearchGrounding === true) {
+                hasSearchGrounding = true
+                console.log('[handlers] ✅ サーチグラウンディング検出（メタデータから）', {
+                  hasSearchGrounding: true,
+                  metadata,
+                  line: trimmedLine
+                })
+              } else {
+                console.log('[handlers] ℹ️ サーチグラウンディング未検出（メタデータから）', {
+                  hasSearchGrounding: false,
+                  metadata,
+                  line: trimmedLine
+                })
+              }
+            } catch (e) {
+              // パースエラーは無視
+            }
+          }
+        }
+        
         let textToAdd = value
 
         // XML形式の検出（最初のチャンクで判定）
@@ -297,28 +494,78 @@ export const processAIResponse = async (messages: Message[]) => {
 
         // XML形式の場合は別処理
         if (isXMLMode) {
-          receivedChunksForXML += value
+          // XMLモードでは、valueからメタデータを除去してから追加
+          // valueは0:"..."形式なので、stripVercelMetadataで処理
+          const cleanedChunk = stripVercelMetadata(value)
+          if (cleanedChunk) {
+            receivedChunksForXML += cleanedChunk
+            // 実際のコンテンツが来たことを記録
+            hasReceivedActualContent = true
+          }
           // XMLタグの処理は後でまとめて行う
         } else {
           // 従来の感情タグ形式の処理
+          // 掛け合いモードの場合、デフォルトでキャラクターAとして処理
+          const messageRole = isDialogueMode ? 'assistant-A' : 'assistant'
+          
+          // メタデータのみのチャンクをスキップ
+          const cleanedText = stripVercelMetadata(textToAdd)
+          if (!cleanedText.trim()) {
+            // メタデータのみの場合はスキップ（ただし、receivedChunksForSpeechには追加）
+            console.log('[handlers] メタデータのみのチャンクをスキップ', {
+              textToAdd: textToAdd.substring(0, 200),
+              textToAddLength: textToAdd.length,
+              fullTextToAdd: textToAdd // デバッグ用に全文を表示
+            })
+            // エラーメッセージの場合は、receivedChunksForSpeechには追加しない
+            if (!textToAdd.includes('An error occurred')) {
+              receivedChunksForSpeech += value
+            }
+            continue
+          }
+          
+          // 実際のコンテンツが来たことを記録
+          hasReceivedActualContent = true
+          
+          console.log('[handlers] テキストチャンク処理', {
+            textToAdd: textToAdd.substring(0, 100),
+            cleanedText: cleanedText.substring(0, 100),
+            isDialogueMode,
+            messageRole
+          })
+          
           if (currentMessageId === null) {
             currentMessageId = generateMessageId()
-            currentMessageContent = textToAdd
+            currentMessageContent = cleanedText
 
-            if (currentMessageContent) {
+            if (currentMessageContent.trim()) {
+              const displayContent = stripEmotionTagsForDisplay(currentMessageContent)
+              console.log('[handlers] 新規メッセージ追加', {
+                id: currentMessageId,
+                role: messageRole,
+                content: displayContent.substring(0, 100),
+                contentLength: displayContent.length
+              })
               homeStore.getState().upsertMessage({
                 id: currentMessageId,
-                role: 'assistant',
-                content: stripEmotionTagsForDisplay(currentMessageContent),
+                role: messageRole,
+                content: displayContent,
               })
             }
           } else if (!isCodeBlock) {
-            currentMessageContent += textToAdd
-            if (textToAdd) {
+            currentMessageContent += cleanedText
+            if (cleanedText.trim()) {
+              const displayContent = stripEmotionTagsForDisplay(currentMessageContent)
+              console.log('[handlers] メッセージ更新', {
+                id: currentMessageId,
+                role: messageRole,
+                content: displayContent.substring(0, 100),
+                contentLength: displayContent.length
+              })
               homeStore.getState().upsertMessage({
                 id: currentMessageId,
-                role: 'assistant',
-                content: stripEmotionTagsForDisplay(currentMessageContent),
+                role: messageRole,
+                content: displayContent,
               })
             }
           }
@@ -329,63 +576,170 @@ export const processAIResponse = async (messages: Message[]) => {
 
       // ======== XML形式の処理 ========
       if (isXMLMode && receivedChunksForXML) {
-        const { completeTags, remainingText } = extractCompleteXMLTags(receivedChunksForXML)
+        console.log('[handlers] XML形式の処理開始', {
+          receivedChunksForXML: receivedChunksForXML.substring(0, 500),
+          receivedChunksForXMLLength: receivedChunksForXML.length
+        })
+        // Vercel AI SDKのメタデータを除去してからXMLパース
+        // receivedChunksForXMLには既にメタデータが除去されているはずだが、念のため再度処理
+        let cleanedXML = receivedChunksForXML
+        // XML内に残っている可能性のある0:"..."形式も除去
+        cleanedXML = cleanedXML.replace(/\d+:"([^"]*)"?/g, (match, content) => {
+          // エスケープされた文字を復元
+          let extracted = content || ''
+          extracted = extracted.replace(/\\"/g, '"')
+          extracted = extracted.replace(/\\\\/g, '\\')
+          extracted = extracted.replace(/\\n/g, '\n')
+          return extracted
+        })
+        // エスケープされた引用符を処理
+        cleanedXML = cleanedXML.replace(/emotion=\\"([^"]+)\\"\\>/g, 'emotion="$1">')
+        cleanedXML = cleanedXML.replace(/emotion=\\"([^"]+)\\"\\s/g, 'emotion="$1" ')
+        cleanedXML = cleanedXML.replace(/<(A|B)\s+emotion=\\"([^"]+)\\"\\>/g, '<$1 emotion="$2">')
+        cleanedXML = cleanedXML.replace(/\\\\"/g, '"')
+        cleanedXML = cleanedXML.replace(/\\\\/g, '\\')
+        
+        console.log('[handlers] メタデータ除去後のXML', {
+          cleanedXML: cleanedXML.substring(0, 500),
+          cleanedXMLLength: cleanedXML.length
+        })
+        const { completeTags, remainingText } = extractCompleteXMLTags(cleanedXML)
+        console.log('[handlers] XMLパース結果', {
+          completeTagsCount: completeTags.length,
+          remainingText: remainingText.substring(0, 200)
+        })
+        // デバッグ用：各XMLタグの詳細を文字列で出力
+        console.log('[handlers] 📋 XMLタグパース結果:', {
+          totalTags: completeTags.length,
+          tags: completeTags.map((tag, index) => ({
+            index,
+            character: tag.character,
+            emotion: tag.emotion,
+            hasSearchGrounding: tag.hasSearchGrounding,
+            textLength: tag.text.length,
+            textPreview: tag.text.substring(0, 50)
+          }))
+        })
         
         // 完全なXMLタグを処理
+        // 各XMLタグごとに個別のメッセージを作成（同じキャラクターの複数セリフも分離）
+        // ただし、メッセージは読み上げ開始時に追加する（読み上げと同期）
+        console.log('[handlers] XMLタグ処理開始', {
+          completeTagsCount: completeTags.length,
+          completeTags: completeTags.map(d => ({ character: d.character, text: d.text.substring(0, 50) }))
+        })
         for (const dialogue of completeTags) {
           const character = dialogue.character
           const emotion = dialogue.emotion as EmotionType
-          const text = dialogue.text
+          let text = dialogue.text
+          // サーチグラウンディング情報の決定
+          // 優先順位: 実際のサーチグラウンディング検出結果（hasSearchGrounding）を最優先
+          // XMLタグのsearch="true"は参考程度（AIが「サーチグラウンディングを使った」と判断した場合）
+          // 実際のサーチグラウンディングが使われていない場合、XMLタグにsearch="true"が含まれていても(サーチ)を表示しない
+          const xmlTagHasSearch = dialogue.hasSearchGrounding === true
+          // 実際のサーチグラウンディング検出結果を優先（実際に使われた場合のみtrue）
+          const dialogueHasSearchGrounding = hasSearchGrounding
           
-          // メッセージIDの初期化
-          if (character === 'A' && currentMessageIdA === null) {
-            currentMessageIdA = generateMessageId()
-            homeStore.getState().upsertMessage({
-              id: currentMessageIdA,
-              role: 'assistant-A',
-              content: '',
+          console.log('[handlers] 🔍 サーチグラウンディング情報の決定:', {
+            character,
+            xmlTagHasSearch,
+            actualHasSearchGrounding: hasSearchGrounding,
+            finalDialogueHasSearchGrounding: dialogueHasSearchGrounding,
+            willShowSearchLabel: dialogueHasSearchGrounding
+          })
+          
+          // XMLパーサーで抽出されたテキストにも引用符が残っている可能性があるので除去
+          // stripVercelMetadataで処理（0:"..."形式の残骸を除去）
+          text = stripVercelMetadata(text)
+          // 追加の引用符除去処理
+          text = text.replace(/^["']+|["']+$/g, '') // 先頭・末尾の引用符
+          text = text.replace(/^\d+["']/g, '') // 数字+"形式
+          text = text.replace(/([あ-んア-ン一-龯ー])(["'])([あ-んア-ン一-龯ー])/g, '$1$3') // 日本語文字間（例: それ"じゃあ → それじゃあ）
+          text = text.replace(/([あ-んア-ン一-龯ー])(["'])([、。！？])/g, '$1$3') // 日本語文字と句読点
+          text = text.replace(/([、。！？])(["'])([あ-んア-ン一-龯ー])/g, '$1$3') // 句読点と日本語文字
+          text = text.replace(/(\d)(["'])(\d)/g, '$1$3') // 数字間
+          text = text.replace(/([あ-んア-ン一-龯ー])(["'])([「」『』])/g, '$1$3') // 日本語文字と日本語引用符
+          text = text.replace(/([「」『』])(["'])([あ-んア-ン一-龯ー])/g, '$1$3') // 日本語引用符と日本語文字
+          text = text.replace(/([あ-んア-ン一-龯ー。！？])(["'])$/g, '$1') // 文末の引用符（例: 調べてみますね。" → 調べてみますね。）
+          
+          // 同じキャラクターが連続する場合、前のセリフにまとめる
+          if (lastProcessedCharacter === character && pendingDialogue) {
+            // 同じキャラクターの連続セリフをまとめる
+            pendingDialogue.text += text
+            pendingDialogue.hasSearchGrounding = pendingDialogue.hasSearchGrounding || dialogueHasSearchGrounding
+            console.log('[handlers] 同じキャラクターの連続セリフをまとめます', {
+              character,
+              combinedText: pendingDialogue.text.substring(0, 100),
+              hasSearchGrounding: pendingDialogue.hasSearchGrounding
             })
-          }
-          if (character === 'B' && currentMessageIdB === null) {
-            currentMessageIdB = generateMessageId()
-            homeStore.getState().upsertMessage({
-              id: currentMessageIdB,
-              role: 'assistant-B',
-              content: '',
-            })
+            continue // 次のセリフまで待つ
           }
           
-          // メッセージ内容を更新
-          if (character === 'A') {
-            currentMessageContentA += text
-            homeStore.getState().upsertMessage({
-              id: currentMessageIdA!,
-              role: 'assistant-A',
-              content: currentMessageContentA,
+          // 前のキャラクターのセリフを処理（まとめたセリフがある場合）
+          if (pendingDialogue && pendingDialogue.character !== character) {
+            console.log('[handlers] 前のキャラクターのセリフを処理します', {
+              character: pendingDialogue.character,
+              text: pendingDialogue.text.substring(0, 50),
+              textLength: pendingDialogue.text.length,
+              hasSearchGrounding: pendingDialogue.hasSearchGrounding
             })
-          } else {
-            currentMessageContentB += text
-            homeStore.getState().upsertMessage({
-              id: currentMessageIdB!,
-              role: 'assistant-B',
-              content: currentMessageContentB,
+            dialogueTurnCount++
+            console.log('[handlers] 📊 掛け合いターン数:', {
+              turnNumber: dialogueTurnCount,
+              character: pendingDialogue.character,
+              hasSearchGrounding: pendingDialogue.hasSearchGrounding || hasSearchGrounding,
+              isSearchGrounded: hasSearchGrounding,
+              minimumRequired: hasSearchGrounding ? 7 : 0
             })
-          }
-          
-          // 音声合成（各キャラクター別々に）
-          if (text.trim()) {
             handleSpeakAndStateUpdateForCharacter(
               sessionId,
-              text,
-              emotion,
-              character,
-              currentSlideMessagesRef
+              pendingDialogue.text,
+              pendingDialogue.emotion,
+              pendingDialogue.character,
+              currentSlideMessagesRef,
+              pendingDialogue.hasSearchGrounding || hasSearchGrounding
             )
+            pendingDialogue = null
           }
+          
+          // 現在のセリフをバッファに保存
+          pendingDialogue = {
+            character,
+            emotion,
+            text,
+            hasSearchGrounding: dialogueHasSearchGrounding
+          }
+          lastProcessedCharacter = character
+          
+          console.log('[handlers] XMLタグ処理中', {
+            character,
+            emotion,
+            text: text.substring(0, 50),
+            textLength: text.length,
+            hasSearchGrounding: dialogueHasSearchGrounding,
+            dialogueHasSearchGrounding: dialogueHasSearchGrounding,
+            dialogueObject: dialogue,
+            searchAttribute: dialogue.hasSearchGrounding,
+            rawDialogue: JSON.stringify(dialogue),
+            willPassToSpeak: dialogueHasSearchGrounding || hasSearchGrounding
+          })
+          // デバッグ用：詳細を個別に出力
+          console.log('[handlers] XMLタグ詳細:', 
+            `character=${character}, ` +
+            `emotion=${emotion}, ` +
+            `dialogueHasSearchGrounding=${dialogueHasSearchGrounding}, ` +
+            `dialogue.hasSearchGrounding=${dialogue.hasSearchGrounding}, ` +
+            `hasSearchGrounding(global)=${hasSearchGrounding}, ` +
+            `willPassToSpeak=${dialogueHasSearchGrounding || hasSearchGrounding}`
+          )
         }
         
         // 残りのテキストを保持
         receivedChunksForXML = remainingText
+        
+        // チャンク処理後に残っているセリフを処理（次のチャンクが来る前に処理）
+        // ただし、まだストリームが続く可能性があるので、ここでは処理しない
+        // 最終処理でまとめて処理する
       }
 
       let processable = receivedChunksForSpeech
@@ -461,7 +815,8 @@ export const processAIResponse = async (messages: Message[]) => {
                 sessionId,
                 sentence,
                 currentEmotionTag,
-                currentSlideMessagesRef
+                currentSlideMessagesRef,
+                defaultCharacterId
               )
 
               beforeText = afterSentence
@@ -503,7 +858,8 @@ export const processAIResponse = async (messages: Message[]) => {
             sessionId,
             sentence,
             currentEmotionTag,
-            currentSlideMessagesRef
+            currentSlideMessagesRef,
+            defaultCharacterId
           )
           processable = afterSentence
           if (!afterSentence) currentEmotionTag = ''
@@ -518,62 +874,163 @@ export const processAIResponse = async (messages: Message[]) => {
 
       if (done) {
         // ===== ストリーム終了処理 =====
+        // デバッグ：全てのチャンクをログに出力
+        if (!hasReceivedActualContent && allReceivedChunks) {
+          console.error('[handlers] 実際のコンテンツが来ませんでした。受信した全てのチャンク:', {
+            allChunks: allReceivedChunks.substring(0, 500),
+            allChunksLength: allReceivedChunks.length,
+            receivedChunksForSpeech: receivedChunksForSpeech.substring(0, 500),
+            receivedChunksForSpeechLength: receivedChunksForSpeech.length
+          })
+        }
+        
         if (isXMLMode) {
           // XML形式の最終処理
           if (receivedChunksForXML.length > 0) {
-            const { completeTags } = extractCompleteXMLTags(receivedChunksForXML)
+            console.log('[handlers] XML形式の最終処理開始', {
+              receivedChunksForXML: receivedChunksForXML.substring(0, 500),
+              receivedChunksForXMLLength: receivedChunksForXML.length
+            })
+            // receivedChunksForXMLには既にメタデータが除去されているはずだが、念のため再度処理
+            // ただし、XML内に残っている可能性のある0:"..."形式も除去
+            let cleanedXML = receivedChunksForXML
+            // XML内に残っている0:"..."形式を除去（再帰的に処理）
+            cleanedXML = cleanedXML.replace(/\d+:"([^"]*)"?/g, (match, content) => {
+              // エスケープされた文字を復元
+              let extracted = content || ''
+              extracted = extracted.replace(/\\"/g, '"')
+              extracted = extracted.replace(/\\\\/g, '\\')
+              extracted = extracted.replace(/\\n/g, '\n')
+              return extracted
+            })
+            console.log('[handlers] メタデータ除去後のXML（最終処理）', {
+              cleanedXML: cleanedXML.substring(0, 500),
+              cleanedXMLLength: cleanedXML.length
+            })
+            const { completeTags } = extractCompleteXMLTags(cleanedXML)
+            console.log('[handlers] XMLパース結果（最終処理）', {
+              completeTagsCount: completeTags.length
+            })
+            // デバッグ用：各XMLタグの詳細を文字列で出力
+            completeTags.forEach((tag, index) => {
+              console.log(`[handlers] XMLタグ[${index}]（最終処理）: character=${tag.character}, emotion=${tag.emotion}, hasSearchGrounding=${tag.hasSearchGrounding}, text=${tag.text.substring(0, 50)}`)
+            })
+            // 各XMLタグごとに個別のメッセージを作成（同じキャラクターの複数セリフも分離）
+            // ただし、メッセージは読み上げ開始時に追加する（読み上げと同期）
+            console.log('[handlers] XMLタグ処理開始（最終処理）', {
+              completeTagsCount: completeTags.length,
+              completeTags: completeTags.map(d => ({ character: d.character, text: d.text.substring(0, 50) }))
+            })
             for (const dialogue of completeTags) {
               const character = dialogue.character
               const emotion = dialogue.emotion as EmotionType
-              const text = dialogue.text
+              let text = dialogue.text
+              // サーチグラウンディング情報の決定
+              // 優先順位: 実際のサーチグラウンディング検出結果（hasSearchGrounding）を最優先
+              // XMLタグのsearch="true"は参考程度（AIが「サーチグラウンディングを使った」と判断した場合）
+              // 実際のサーチグラウンディングが使われていない場合、XMLタグにsearch="true"が含まれていても(サーチ)を表示しない
+              const xmlTagHasSearch = dialogue.hasSearchGrounding === true
+              // 実際のサーチグラウンディング検出結果を優先（実際に使われた場合のみtrue）
+              const dialogueHasSearchGrounding = hasSearchGrounding
               
-              if (character === 'A') {
-                if (currentMessageIdA === null) {
-                  currentMessageIdA = generateMessageId()
-                  homeStore.getState().upsertMessage({
-                    id: currentMessageIdA,
-                    role: 'assistant-A',
-                    content: text,
-                  })
-                } else {
-                  currentMessageContentA += text
-                  homeStore.getState().upsertMessage({
-                    id: currentMessageIdA,
-                    role: 'assistant-A',
-                    content: currentMessageContentA,
-                  })
-                }
-                handleSpeakAndStateUpdateForCharacter(
-                  sessionId,
-                  text,
-                  emotion,
-                  'A',
-                  currentSlideMessagesRef
-                )
-              } else {
-                if (currentMessageIdB === null) {
-                  currentMessageIdB = generateMessageId()
-                  homeStore.getState().upsertMessage({
-                    id: currentMessageIdB,
-                    role: 'assistant-B',
-                    content: text,
-                  })
-                } else {
-                  currentMessageContentB += text
-                  homeStore.getState().upsertMessage({
-                    id: currentMessageIdB,
-                    role: 'assistant-B',
-                    content: currentMessageContentB,
-                  })
-                }
-                handleSpeakAndStateUpdateForCharacter(
-                  sessionId,
-                  text,
-                  emotion,
-                  'B',
-                  currentSlideMessagesRef
-                )
+              // XMLパーサーで抽出されたテキストにも引用符が残っている可能性があるので除去
+              // stripVercelMetadataで処理（0:"..."形式の残骸を除去）
+              text = stripVercelMetadata(text)
+              // 追加の引用符除去処理
+              text = text.replace(/^["']+|["']+$/g, '') // 先頭・末尾の引用符
+              text = text.replace(/^\d+["']/g, '') // 数字+"形式
+              text = text.replace(/([あ-んア-ン一-龯ー])(["'])([あ-んア-ン一-龯ー])/g, '$1$3') // 日本語文字間
+              text = text.replace(/([あ-んア-ン一-龯ー])(["'])([、。！？])/g, '$1$3') // 日本語文字と句読点
+              text = text.replace(/([、。！？])(["'])([あ-んア-ン一-龯ー])/g, '$1$3') // 句読点と日本語文字
+              text = text.replace(/(\d)(["'])(\d)/g, '$1$3') // 数字間
+              text = text.replace(/([あ-んア-ン一-龯ー])(["'])([「」『』])/g, '$1$3') // 日本語文字と日本語引用符
+              text = text.replace(/([「」『』])(["'])([あ-んア-ン一-龯ー])/g, '$1$3') // 日本語引用符と日本語文字
+              
+              // 同じキャラクターが連続する場合、前のセリフにまとめる
+              if (lastProcessedCharacter === character && pendingDialogue) {
+                // 同じキャラクターの連続セリフをまとめる
+                pendingDialogue.text += text
+                pendingDialogue.hasSearchGrounding = pendingDialogue.hasSearchGrounding || dialogueHasSearchGrounding
+                console.log('[handlers] 同じキャラクターの連続セリフをまとめます（最終処理）', {
+                  character,
+                  combinedText: pendingDialogue.text.substring(0, 100),
+                  hasSearchGrounding: pendingDialogue.hasSearchGrounding
+                })
+                continue // 次のセリフまで待つ
               }
+              
+              // 前のキャラクターのセリフを処理（まとめたセリフがある場合）
+              if (pendingDialogue && pendingDialogue.character !== character) {
+                console.log('[handlers] 前のキャラクターのセリフを処理します（最終処理）', {
+                  character: pendingDialogue.character,
+                  text: pendingDialogue.text.substring(0, 50),
+                  textLength: pendingDialogue.text.length,
+                  hasSearchGrounding: pendingDialogue.hasSearchGrounding
+                })
+                handleSpeakAndStateUpdateForCharacter(
+                  sessionId,
+                  pendingDialogue.text,
+                  pendingDialogue.emotion,
+                  pendingDialogue.character,
+                  currentSlideMessagesRef,
+                  pendingDialogue.hasSearchGrounding || hasSearchGrounding
+                )
+                pendingDialogue = null
+              }
+              
+              // 現在のセリフをバッファに保存
+              pendingDialogue = {
+                character,
+                emotion,
+                text,
+                hasSearchGrounding: dialogueHasSearchGrounding
+              }
+              lastProcessedCharacter = character
+              
+              console.log('[handlers] XMLタグ処理中（最終処理）', {
+                character,
+                hasSearchGrounding: dialogueHasSearchGrounding,
+                emotion,
+                text: text.substring(0, 50),
+                textLength: text.length,
+                rawDialogue: JSON.stringify(dialogue)
+              })
+            }
+            
+            // 最後に残っているセリフを処理
+            if (pendingDialogue) {
+              dialogueTurnCount++
+              console.log('[handlers] 📝 最後のセリフを処理します:', {
+                character: pendingDialogue.character,
+                emotion: pendingDialogue.emotion,
+                hasSearchGrounding: pendingDialogue.hasSearchGrounding,
+                textLength: pendingDialogue.text.length,
+                textPreview: pendingDialogue.text.substring(0, 100),
+                turnNumber: dialogueTurnCount,
+                isSearchGrounded: hasSearchGrounding,
+                minimumRequired: hasSearchGrounding ? 7 : 0,
+                meetsMinimumRequirement: hasSearchGrounding ? dialogueTurnCount >= 7 : true
+              })
+              handleSpeakAndStateUpdateForCharacter(
+                sessionId,
+                pendingDialogue.text,
+                pendingDialogue.emotion,
+                pendingDialogue.character,
+                currentSlideMessagesRef,
+                pendingDialogue.hasSearchGrounding || hasSearchGrounding
+              )
+              pendingDialogue = null
+            }
+            
+            // 掛け合いの最終統計
+            if (isDialogueMode && dialogueTurnCount > 0) {
+              console.log('[handlers] 📊 掛け合いの最終統計:', {
+                totalTurns: dialogueTurnCount,
+                hasSearchGrounding,
+                minimumRequired: hasSearchGrounding ? 7 : 0,
+                meetsMinimumRequirement: hasSearchGrounding ? dialogueTurnCount >= 7 : true,
+                status: hasSearchGrounding && dialogueTurnCount < 7 ? '❌ ターン数不足' : '✅ OK'
+              })
             }
           }
         } else {
@@ -590,7 +1047,8 @@ export const processAIResponse = async (messages: Message[]) => {
                 sessionId,
                 finalText,
                 currentEmotionTag,
-                currentSlideMessagesRef
+                currentSlideMessagesRef,
+                defaultCharacterId
               )
             } else {
               codeBlockContent += receivedChunksForSpeech
@@ -618,23 +1076,8 @@ export const processAIResponse = async (messages: Message[]) => {
   homeStore.setState({ chatProcessing: false })
 
   // 最終メッセージの処理
-  if (isXMLMode) {
-    // XML形式の場合は既に処理済み
-    if (currentMessageContentA.trim() && currentMessageIdA) {
-      homeStore.getState().upsertMessage({
-        id: currentMessageIdA,
-        role: 'assistant-A',
-        content: currentMessageContentA.trim(),
-      })
-    }
-    if (currentMessageContentB.trim() && currentMessageIdB) {
-      homeStore.getState().upsertMessage({
-        id: currentMessageIdB,
-        role: 'assistant-B',
-        content: currentMessageContentB.trim(),
-      })
-    }
-  } else {
+  // XML形式の場合は既に各タグごとに処理済みなので、ここでは何もしない
+  if (!isXMLMode) {
     // 従来の感情タグ形式
     if (currentMessageContent.trim()) {
       homeStore.getState().upsertMessage({
@@ -857,10 +1300,20 @@ export const handleReceiveTextFromWsFn =
 // 画面からの送信処理（YouTube コメントもここに流す想定）
 // ============================================================
 
-export const handleSendChatFn = () => async (text: string) => {
+export const handleSendChatFn = () => async (
+  text: string, 
+  characterId?: 'A' | 'B',
+  options?: {
+    isYouTubeComment?: boolean
+    listenerName?: string
+  }
+) => {
   const newMessage = text
   const timestamp = new Date().toISOString()
   if (newMessage === null) return
+  
+  const isYouTubeComment = options?.isYouTubeComment || false
+  const listenerName = options?.listenerName
 
   const ss = settingsStore.getState()
   const sls = slideStore.getState()
@@ -936,31 +1389,190 @@ export const handleSendChatFn = () => async (text: string) => {
   // TODO: より適切な判定方法を実装（タスク3で実装予定）
   const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
   
+  // ---- 掛け合いモード時はアイリスとフィオナの両方のプロンプトを使用 ----
+  if (isDialogueMode) {
+    const systemPromptA = ss.systemPromptA || process.env.NEXT_PUBLIC_SYSTEM_PROMPT_A || SYSTEM_PROMPT
+    const systemPromptB = ss.systemPromptB || process.env.NEXT_PUBLIC_SYSTEM_PROMPT_B || SYSTEM_PROMPT
+    
+    // アイリスとフィオナのプロンプトを結合
+    systemPrompt = `
+[アイリス（A）の設定]
+${systemPromptA}
+
+[フィオナ（B）の設定]
+${systemPromptB}
+`
+  }
+  
+  // ========================================================
+  // 長期記憶システム: 関連記憶を検索してシステムプロンプトに注入
+  // ========================================================
+  // メモリ機能が有効かどうかをチェック
+  const isMemoryEnabled = ss.memoryEnabled || process.env.NEXT_PUBLIC_MEMORY_ENABLED === 'true'
+  
+  if (typeof window !== 'undefined' && isMemoryEnabled) {
+    try {
+      const { searchRelevantMemories } = await import('@/features/memory/memoryManager')
+      const { formatMemoriesForPrompt } = await import('@/features/memory/memoryExtractor')
+      
+      // ユーザーメッセージから関連記憶を検索
+      const userMessageText = typeof newMessage === 'string' ? newMessage : newMessage
+      console.log('[handlers] 🔍 関連記憶を検索開始:', {
+        userMessage: userMessageText.substring(0, 100),
+        messageLength: userMessageText.length
+      })
+      
+      const relevantMemories = await searchRelevantMemories(userMessageText, 5)
+      
+      if (relevantMemories.length > 0) {
+        const memoryPrompt = formatMemoriesForPrompt(relevantMemories)
+        systemPrompt = systemPrompt + '\n\n' + memoryPrompt
+        console.log('[handlers] ✅ 関連記憶をシステムプロンプトに注入:', {
+          memoryCount: relevantMemories.length,
+          systemPromptLength: systemPrompt.length,
+          memories: relevantMemories.map(m => ({ 
+            type: m.type, 
+            content: m.content.substring(0, 50),
+            score: m.relevanceScore
+          }))
+        })
+      } else {
+        console.log('[handlers] ℹ️ 関連記憶なし: システムプロンプトに記憶を注入しません')
+      }
+    } catch (error) {
+      console.error('[handlers] ❌ 記憶システムの読み込みに失敗:', error)
+    }
+  }
+  
+  // ========================================================
+  // Self-Reflectionプロンプト: 回答品質向上のための思考プロセス
+  // ========================================================
+  const selfReflectionPrompt = `
+<self_reflection>
+- まず、最大限自信が持てるまで、タスク解決に向けたrubricについて十分に考えましょう
+- 次に、タスクの出力品質を世界最高にするために、あらゆる構成要素について深く考えましょう。
+- 最後に、rubricを活用して、最良の解決策を内部で検討し、反復改善を重ねましょう…
+</self_reflection>
+
+[思考プロセスの重要性]
+上記の<self_reflection>に従い、回答を生成する前に必ず以下を実行してください：
+1. **Rubric（評価基準）の設定**: この会話で何が成功かを明確に定義する
+2. **構成要素の深い考察**: キャラクター性、会話の流れ、情報の正確性、楽しさなど、すべての要素を考慮する
+3. **内部での反復改善**: 最初の回答案を批判的に検討し、より良い回答を生成する
+
+この思考プロセスを経ることで、より質の高い、正確で、自然な会話を生成できます。
+`
+  systemPrompt = systemPrompt + '\n\n' + selfReflectionPrompt
+  console.log('[handlers] ✅ Self-Reflectionプロンプトをシステムプロンプトに組み込み:', {
+    selfReflectionLength: selfReflectionPrompt.length,
+    totalSystemPromptLength: systemPrompt.length
+  })
+  
   // ---- XML形式の指示を追加（掛け合いモード時） ----
   if (isDialogueMode) {
+    // characterIdに応じて最初のターンを決定
+    const startCharacter = characterId === 'B' ? 'B' : 'A'
+    const startCharacterName = characterId === 'B' ? 'フィオナ' : 'アイリス'
+    
     const xmlInstruction = `
 
 [掛け合い形式]
-あなたはアイリス（A）とフィオナ（B）の2人のキャラクターとして、掛け合い形式で応答してください。
+あなたはアイリス（A）とフィオナ（B）の2人のキャラクターとして、**必ず掛け合い形式で応答してください**。
+**最重要**: 最初のターンは必ず${startCharacterName}（${startCharacter}）から開始してください。これを守らないとエラーになります。
+**最重要**: サーチグラウンディング機能を使用する話題では、**必ず掛け合い形式で応答すること**。単一の応答形式は絶対に禁止です。
+
+[掛け合いを行うべき場合]
+以下の場合には**必ず掛け合い形式で応答してください**：
+- **サーチグラウンディング機能を使用する話題の場合**（最新情報、攻略情報、ゲーム情報、アニメ情報、流行、コスメ、時事など）→ **必ず掛け合い形式**
+- **会話の流れで2人で話すのが自然な場合** → **必ず掛け合い形式**
+- **ユーザーが掛け合いを期待している場合** → **必ず掛け合い形式**
+- **前回の会話が掛け合い形式だった場合** → **続きも掛け合い形式で応答**
+
+**重要**: サーチグラウンディング機能を使用する話題では、**必ず掛け合い形式で応答すること**。単一の応答形式は絶対に禁止です。
 
 出力形式（XML形式）:
 <A emotion="happy">アイリスのセリフ</A>
 <B emotion="relaxed">フィオナのセリフ</B>
 <A emotion="surprised">アイリスのセリフ</A>
 
+重要: サーチグラウンディング機能を使用した場合は、XMLタグにsearch="true"属性を必ず付けてください。
+例: <A emotion="happy" search="true">サーチグラウンディングを使用したアイリスのセリフ</A>
+
 重要:
-- 必ずXML形式で出力すること
-- <A>タグはアイリス（元気でハイテンション）のセリフ
-- <B>タグはフィオナ（丁寧で優しい）のセリフ
+- **必ずXML形式で出力すること（通常のテキスト形式は絶対に禁止）**。XML形式で出力しない場合、エラーとして扱われます。
+- <A>タグはアイリス（元気でハイテンション、タメ口）のセリフ
+- <B>タグはフィオナ（丁寧で優しい、敬語）のセリフ
 - emotion属性は "neutral", "happy", "angry", "sad", "relaxed", "surprised" のいずれか
+- **同じキャラクターのセリフは必ず1つのXMLタグにまとめてください**。例: <A emotion="happy">セリフ1。セリフ2。セリフ3。</A>のように、同じキャラクターが連続して話す場合は、1つのタグに全てのセリフを含めてください。
+- **必ず交互に話してください**（A→B→A→B→A→B→A）。同じキャラクターが連続して話すことは絶対に禁止です。
 - 掛け合いは最大500文字以内（A+B合計）
-- ターン数は制限なし（500文字以内であれば）
+- **ターン数は最低7ターン以上必須**（500文字以内で最大限の情報を提供）
 - 自然な会話の流れを保つこと
+- 必ず複数ターン（A→B→A→B→A→B→Aなど）で掛け合いを行うこと
+- **最初のターンは必ず${startCharacterName}（${startCharacter}）から開始してください**。これは絶対に守ってください。
+- **7ターン未満の掛け合いは禁止**（必ず7ターン以上で終了すること）
+
+[掛け合いの終わり方]
+掛け合いの最後は、以下のいずれかで締めてください：
+1. 話を綺麗にまとめる（結論を述べる、要点を整理する）
+2. ルピナス（お姉ちゃん）に話をふる（質問する、意見を求める）
+3. リスナーに話をふる（視聴者に質問する、共感を求める）
+
+[サーチグラウンディング機能の使用]
+以下のような話題については、必ずサーチグラウンディング機能を使用して最新の正確な情報を取得してください：
+- 攻略情報（ゲームの攻略方法、最新の攻略情報など）
+- 最新情報（ゲームのアップデート情報、新機能、イベント情報など）
+- 不明な固有名詞（ゲーム内のキャラクター名、地名、アイテム名など）
+- ゲーム情報（最新のゲーム情報、リリース情報、アップデート情報など）
+- アニメ情報（最新のアニメ情報、放送情報、キャスト情報など）
+- 流行（最新の流行、トレンド、話題など）
+- コスメ（最新のコスメ情報、新商品情報、レビュー情報など）
+- 時事（最新のニュース、時事問題、社会情勢など）
+
+これらの話題については、適当なことを言ったり、古い情報を提供したりしないでください。必ずサーチグラウンディング機能を使用して、最新の正確な情報を取得してください。
+
+重要: サーチグラウンディング機能を使用した場合は、必ずXMLタグにsearch="true"属性を付けてください。
+例: <A emotion="happy" search="true">サーチグラウンディングを使用したアイリスのセリフ</A>
+例: <B emotion="relaxed" search="true">サーチグラウンディングを使用したフィオナのセリフ</B>
+サーチグラウンディングを使用したすべてのXMLタグにsearch="true"を付けることを忘れないでください。
+
+[サーチグラウンディングを使用した掛け合いの特徴]
+サーチグラウンディング機能を使用した掛け合いは、以下の特徴を持たせてください：
+- **詳細な情報**: 検索で取得した情報を、できる限り詳細に、具体的に伝えてください
+- **長い掛け合い**: サーチグラウンディングを使用した場合は、**必ず最低7ターン以上**の掛け合い（500文字以内で最大限の情報を提供）にしてください。**6ターン以下は禁止**です。
+- **正確性**: 検索で取得した情報を正確に伝え、推測や憶測は避けてください
+- **情報の網羅性**: 検索で取得した情報の中から、重要な情報をできる限り多く含めてください
+- **ターン数の厳守**: サーチグラウンディングを使用した場合は、**必ず7ターン以上で終了すること**。6ターンで終了することは絶対に禁止です。
+
+[続きを聞く場合の対応]
+ユーザーが「続きを聞きたい」「もっと詳しく」「他にも情報がある？」など、続きを求めている場合は：
+- **さらに多くの情報を提供**: サーチグラウンディングを使用して、さらに多くの詳細な情報を取得してください
+- **長い掛け合い**: 続きを聞く場合も、最低7ターン以上、500文字以内で最大限の情報を提供する長い掛け合いにしてください
+- **情報の深掘り**: 前回の情報に関連する、より詳細な情報や、関連する情報も含めてください
+- **情報の補足**: 前回伝えきれなかった情報や、追加で見つかった情報も含めてください
+
+[掛け合いの楽しませる要素]
+掛け合いごとに、聞いてる人を楽しませる要素をたくさん入れてください：
+- 雑談のように話す（日常会話、最近の出来事、趣味の話など）
+- 女子トーク風にしゃべる（お互いの反応を楽しむ、共感し合う、盛り上がる）
+- 漫才風にしゃべる（ボケとツッコミ、掛け合いのリズム、笑いを取る）
+- テーマに沿った深い話（哲学的な話、人生観、価値観の違いなど）
+- お互いのキャラクター性を活かした掛け合い（アイリスの元気さとフィオナの優しさのコントラスト）
 
 例:
 <A emotion="happy">やっほー！お姉ちゃん、今日はどんな話する？</A>
 <B emotion="relaxed">ふふ、アイリスちゃん、楽しみですねぇ。</B>
 <A emotion="surprised">えぇ！？フィオナ、何か企んでるの！？</A>
+<B emotion="happy">いえいえ、ただアイリスちゃんの反応が楽しみだっただけですよ。</B>
+<A emotion="relaxed">そうなの？じゃあ、お姉ちゃんに聞いてみようか！</A>
+
+[最終確認 - これらを絶対に守ってください]
+- **必ずXML形式で出力すること**。通常のテキスト形式は絶対に禁止です。XML形式で出力しない場合、エラーとして扱われます。
+- **サーチグラウンディング機能を使用する話題では、必ず掛け合い形式で応答すること**。単一の応答形式は絶対に禁止です。サーチグラウンディングを使用する話題で掛け合い形式で応答しない場合、エラーとして扱われます。
+- **最低7ターン以上の掛け合いを行うこと**。6ターン以下は禁止です。7ターン未満の掛け合いはエラーとして扱われます。
+- **最初のターンは必ず${startCharacterName}（${startCharacter}）から開始すること**。これを守らないとエラーになります。
+- **必ず交互に話すこと**（A→B→A→B→A→B→A）。同じキャラクターが連続して話すことは絶対に禁止です。同じキャラクターが連続して話す場合、エラーとして扱われます。
+- **サーチグラウンディング機能を使用した場合は、必ずXMLタグにsearch="true"属性を付けること**。search="true"を付けない場合、エラーとして扱われます。
 `
     systemPrompt = systemPrompt + xmlInstruction
   }
@@ -1011,6 +1623,7 @@ export const handleSendChatFn = () => async (text: string) => {
     role: 'user',
     content: userMessageContent,
     timestamp,
+    youtube: isYouTubeComment, // YouTubeコメントかどうか
   })
 
   if (modalImage) homeStore.setState({ modalImage: '' })
@@ -1029,7 +1642,45 @@ export const handleSendChatFn = () => async (text: string) => {
   ]
 
   try {
-    await processAIResponse(messages)
+    await processAIResponse(messages, characterId)
+    
+    // ========================================================
+    // 長期記憶システム: 会話から記憶を抽出して保存
+    // ========================================================
+    // 注意: processAIResponseは非同期で実行されるため、
+    // 実際の記憶抽出は応答が完了した後に行う必要がある
+    // ここではタイマーで遅延実行する（暫定実装）
+    if (typeof window !== 'undefined') {
+      setTimeout(async () => {
+        try {
+          const { extractMemoriesFromConversation } = await import('@/features/memory/memoryExtractor')
+          const currentChatLogAfter = homeStore.getState().chatLog
+          
+          // 最新のアシスタントメッセージを取得
+          const latestAssistantMessage = currentChatLogAfter
+            .filter(msg => msg.role === 'assistant' || msg.role === 'assistant-A' || msg.role === 'assistant-B')
+            .slice(-1)[0]
+          
+          if (latestAssistantMessage) {
+            const assistantText = typeof latestAssistantMessage.content === 'string' 
+              ? latestAssistantMessage.content 
+              : latestAssistantMessage.content?.[0]?.text || ''
+            
+            if (assistantText) {
+              const extractedMemories = extractMemoriesFromConversation(newMessage, assistantText)
+              if (extractedMemories.length > 0) {
+                console.log('[handlers] 会話から記憶を抽出:', {
+                  count: extractedMemories.length,
+                  memories: extractedMemories.map(m => ({ type: m.type, content: m.content.substring(0, 30) }))
+                })
+              }
+            }
+          }
+        } catch (error) {
+          console.error('[handlers] 記憶抽出に失敗:', error)
+        }
+      }, 2000) // 2秒後に実行（応答が完了していることを想定）
+    }
   } catch (e) {
     console.error(e)
     homeStore.setState({ chatProcessing: false })

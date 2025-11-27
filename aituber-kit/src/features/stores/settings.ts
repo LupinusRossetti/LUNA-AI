@@ -275,6 +275,10 @@ interface General {
   chatLogWidth: number
   imageDisplayPosition: 'input' | 'side' | 'icon'
   colorTheme: 'default' | 'cool' | 'mono' | 'ocean' | 'forest' | 'sunset'
+  memoryEnabled: boolean
+  streamerNickname: string
+  characterANickname: string
+  characterBNickname: string
 }
 
 interface ModelType {
@@ -615,6 +619,10 @@ const getInitialValuesFromEnv = (): SettingsState => ({
       | 'ocean'
       | 'forest'
       | 'sunset') || 'default',
+  memoryEnabled: process.env.NEXT_PUBLIC_MEMORY_ENABLED === 'true',
+  streamerNickname: process.env.NEXT_PUBLIC_STREAMER_NICKNAME || 'ルピナス',
+  characterANickname: process.env.NEXT_PUBLIC_CHARACTER_A_NICKNAME || 'アイリス',
+  characterBNickname: process.env.NEXT_PUBLIC_CHARACTER_B_NICKNAME || 'フィオナ',
 
   // NijiVoice settings
   nijivoiceApiKey: '',
@@ -828,6 +836,10 @@ const settingsStore = create<SettingsState>()(
       chatLogWidth: state.chatLogWidth,
       imageDisplayPosition: state.imageDisplayPosition,
       colorTheme: state.colorTheme,
+      memoryEnabled: state.memoryEnabled,
+      streamerNickname: state.streamerNickname,
+      characterANickname: state.characterANickname,
+      characterBNickname: state.characterBNickname,
     }),
   })
 )

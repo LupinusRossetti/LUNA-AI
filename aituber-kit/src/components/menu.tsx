@@ -52,13 +52,14 @@ export const Menu = () => {
   const [showSettings, setShowSettings] = useState(false)
   // 会話ログ表示モード
   const CHAT_LOG_MODE = {
-    HIDDEN: 0, // 非表示
-    ASSISTANT: 1, // アシスタントテキスト
-    CHAT_LOG: 2, // 会話ログ
+    BOTH: 0, // セリフ枠+会話ログ（デフォルト）
+    ASSISTANT: 1, // セリフ枠のみ
+    CHAT_LOG: 2, // 会話ログのみ
+    HIDDEN: 3, // どちらもなし
   } as const
 
   const [chatLogMode, setChatLogMode] = useState<number>(
-    CHAT_LOG_MODE.ASSISTANT
+    CHAT_LOG_MODE.BOTH // デフォルトはセリフ枠+会話ログ
   )
   const [showPermissionModal, setShowPermissionModal] = useState(false)
   const imageFileInputRef = useRef<HTMLInputElement>(null)
@@ -108,6 +109,7 @@ export const Menu = () => {
   const latestAssistantMessageData = getLatestAssistantMessageWithRole(chatLog)
   const latestAssistantMessage = latestAssistantMessageData.content
   const latestAssistantRole = latestAssistantMessageData.role
+  const latestAssistantHasSearchGrounding = latestAssistantMessageData.hasSearchGrounding
 
   const handleChangeVrmFile = useCallback(
     (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -226,15 +228,17 @@ export const Menu = () => {
               <div className="md:order-2 order-1">
                 <IconButton
                   iconName={
-                    chatLogMode === CHAT_LOG_MODE.CHAT_LOG
-                      ? '24/CommentOutline'
+                    chatLogMode === CHAT_LOG_MODE.BOTH
+                      ? '24/CommentFill'
                       : chatLogMode === CHAT_LOG_MODE.ASSISTANT
-                        ? '24/CommentFill'
-                        : '24/Close'
+                        ? '24/CommentOutline'
+                        : chatLogMode === CHAT_LOG_MODE.CHAT_LOG
+                          ? '24/CommentOutline'
+                          : '24/Close'
                   }
                   label={t('ChatLog')}
                   isProcessing={false}
-                  onClick={() => setChatLogMode((prev) => (prev + 1) % 3)}
+                  onClick={() => setChatLogMode((prev) => (prev + 1) % 4)}
                 />
               </div>
               {!youtubeMode && (
@@ -312,24 +316,19 @@ export const Menu = () => {
         {slideMode && slideVisible && <Slides markdown={markdownContent} />}
       </div>
       {/* 会話ログ表示 */}
-      {(chatLogMode === CHAT_LOG_MODE.CHAT_LOG || 
-        (chatLogMode === CHAT_LOG_MODE.ASSISTANT && showSimultaneousDisplay)) && 
+      {(chatLogMode === CHAT_LOG_MODE.BOTH || chatLogMode === CHAT_LOG_MODE.CHAT_LOG) && 
         <ChatLog />}
       {showSettings && <Settings onClickClose={() => setShowSettings(false)} />}
       {/* セリフ枠表示 */}
-      {chatLogMode === CHAT_LOG_MODE.ASSISTANT &&
+      {(chatLogMode === CHAT_LOG_MODE.BOTH || chatLogMode === CHAT_LOG_MODE.ASSISTANT) &&
         latestAssistantMessage &&
         (!slideMode || !slideVisible) &&
         showAssistantText && (
-          <AssistantText message={latestAssistantMessage} role={latestAssistantRole} />
-        )}
-      {/* 同時表示モード: セリフ枠も表示 */}
-      {chatLogMode === CHAT_LOG_MODE.CHAT_LOG &&
-        showSimultaneousDisplay &&
-        latestAssistantMessage &&
-        (!slideMode || !slideVisible) &&
-        showAssistantText && (
-          <AssistantText message={latestAssistantMessage} role={latestAssistantRole} />
+          <AssistantText 
+            message={latestAssistantMessage} 
+            role={latestAssistantRole}
+            hasSearchGrounding={latestAssistantHasSearchGrounding}
+          />
         )}
       {showWebcam && navigator.mediaDevices && <Webcam />}
       {showCapture && <Capture />}

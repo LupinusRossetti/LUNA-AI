@@ -42,16 +42,16 @@ export const Form = () => {
 
   const hookSendChatA = useCallback(
     (text: string) => {
-      // キャラA用の送信処理（将来的にキャラクターIDを渡すように拡張）
-      handleSendChat(text)
+      // キャラA用の送信処理
+      handleSendChat(text, 'A')
     },
     [handleSendChat]
   )
 
   const hookSendChatB = useCallback(
     (text: string) => {
-      // キャラB用の送信処理（将来的にキャラクターIDを渡すように拡張）
-      handleSendChat(text)
+      // キャラB用の送信処理
+      handleSendChat(text, 'B')
     },
     [handleSendChat]
   )

@@ -19,7 +19,7 @@ export const getLatestAssistantMessage = (
  */
 export const getLatestAssistantMessageWithRole = (
   chatLog: Message[] | null | undefined
-): { content: string; role: 'assistant' | 'assistant-A' | 'assistant-B' | null } => {
+): { content: string; role: 'assistant' | 'assistant-A' | 'assistant-B' | null; hasSearchGrounding?: boolean } => {
   if (!chatLog || chatLog.length === 0) {
     return { content: '', role: null }
   }
@@ -41,6 +41,7 @@ export const getLatestAssistantMessageWithRole = (
       return {
         content,
         role: msg.role as 'assistant' | 'assistant-A' | 'assistant-B',
+        hasSearchGrounding: msg.hasSearchGrounding,
       }
     }
   }

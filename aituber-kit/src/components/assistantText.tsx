@@ -9,9 +9,10 @@ import { uiColors } from '@/features/stores/settings'
 type AssistantTextProps = {
   message: string
   role?: 'assistant' | 'assistant-A' | 'assistant-B' | null
+  hasSearchGrounding?: boolean
 }
 
-export const AssistantText = ({ message, role }: AssistantTextProps) => {
+export const AssistantText = ({ message, role, hasSearchGrounding }: AssistantTextProps) => {
   const characterAName = settingsStore((s) => s.characterAName)
   const characterBName = settingsStore((s) => s.characterBName)
   const characterName = settingsStore((s) => s.characterName) // レガシー対応
@@ -22,25 +23,33 @@ export const AssistantText = ({ message, role }: AssistantTextProps) => {
   let color
   let displayName: string
 
-  if (isDialogueMode && role) {
+  if (isDialogueMode) {
     // 掛け合いモード: roleに応じて色と名前を決定
     if (role === 'assistant-A') {
       color = uiColors.characterA
-      displayName = characterAName
+      displayName = characterAName || 'アイリス・ロゼッティ'
     } else if (role === 'assistant-B') {
       color = uiColors.characterB
-      displayName = characterBName
+      displayName = characterBName || 'フィオナ・ロゼッティ'
+    } else if (role === 'assistant') {
+      // fallback: assistant（レガシー）の場合、デフォルトでAを使用
+      color = uiColors.characterA
+      displayName = characterAName || 'アイリス・ロゼッティ'
     } else {
-      // fallback: assistant（レガシー）
-      const APP_ID = process.env.NEXT_PUBLIC_APP_ID
-      color = APP_ID === 'A' ? uiColors.characterA : uiColors.characterB
-      displayName = characterName
+      // roleがnullまたはundefinedの場合、デフォルトでAを使用
+      color = uiColors.characterA
+      displayName = characterAName || 'アイリス・ロゼッティ'
     }
   } else {
     // 単体モード: APP_IDに応じて色と名前を決定
     const APP_ID = process.env.NEXT_PUBLIC_APP_ID
     color = APP_ID === 'A' ? uiColors.characterA : uiColors.characterB
-    displayName = characterName
+    displayName = APP_ID === 'A' ? (characterAName || 'アイリス・ロゼッティ') : (characterBName || 'フィオナ・ロゼッティ')
+  }
+  
+  // サーチグラウンディングが使用された場合、名前の後ろに「(サーチ)」を追加
+  if (hasSearchGrounding) {
+    displayName = `${displayName}(サーチ)`
   }
 
   // ▼ 感情タグ除去

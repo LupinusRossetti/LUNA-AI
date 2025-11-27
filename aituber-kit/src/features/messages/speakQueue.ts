@@ -33,6 +33,7 @@ type SpeakTask = {
   audioBuffer: ArrayBuffer
   talk: Talk
   isNeedDecode: boolean
+  onStart?: () => void // 実際に音声が再生される前に呼ばれる
   onComplete?: () => void
 }
 
@@ -148,7 +149,9 @@ export class SpeakQueue {
           continue
         }
         try {
-          const { audioBuffer, talk, isNeedDecode, onComplete } = task
+          const { audioBuffer, talk, isNeedDecode, onStart, onComplete } = task
+          // 実際に音声が再生される前にonStartを呼ぶ
+          onStart?.()
           if (ss.modelType === 'live2d') {
             // 掛け合いモード: characterIdをLive2DHandlerに渡す
             await Live2DHandler.speak(audioBuffer, talk, isNeedDecode)

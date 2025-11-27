@@ -8,6 +8,7 @@ export type Message = {
   timestamp?: string
   type?: string
   youtube?: boolean
+  hasSearchGrounding?: boolean // サーチグラウンディングが使用されたかどうか
 }
 
 export const EMOTIONS = [
