@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
+import type React from 'react'
 import { Application, Ticker, DisplayObject } from 'pixi.js'
 // Live2DModelはスクリプトロード後に動的にインポート
 // import { Live2DModel } from 'pixi-live2d-display-lipsyncpatch/cubism4'
@@ -17,6 +18,35 @@ type Live2DManagerProps = {
 
 // Live2DModelの型を後で定義（動的インポートのため）
 type Live2DModelType = any
+
+// 定数
+const MODEL_LOAD_TIMEOUT = 10000
+const MODEL_CHECK_INTERVAL = 5000
+const MODEL_CHECK_DURATION = 30000
+const RESIZE_DEBOUNCE_MS = 300
+const MAX_FPS = 60
+const MAX_RESOLUTION = 2
+
+// モデル破棄の共通処理
+const destroyModel = (
+  app: Application,
+  model: Live2DModelType | null,
+  characterId: 'A' | 'B'
+): void => {
+  if (!model) return
+
+  try {
+    // アニメーションを停止
+    if (model.internalModel) {
+      model.internalModel.stopAllMotions()
+      model.internalModel.stopAllExpressions()
+    }
+    app.stage.removeChild(model as unknown as DisplayObject)
+    model.destroy()
+  } catch (error) {
+    console.error(`Error destroying model ${characterId}:`, error)
+  }
+}
 
 const setModelPosition = (
   app: Application,
@@ -143,10 +173,16 @@ export const Live2DManager = ({ characterAPath, characterBPath }: Live2DManagerP
         backgroundAlpha: 0,
         antialias: true,
         autoDensity: true,
-        resolution: window.devicePixelRatio || 1,
+        resolution: Math.min(window.devicePixelRatio || 1, MAX_RESOLUTION),
         powerPreference: 'high-performance',
         preserveDrawingBuffer: false,
+        // レンダリング最適化
+        autoStart: true,
+        sharedTicker: true, // Ticker.sharedを使用してメモリ効率を向上
       })
+      
+      // FPS制限（CPU負荷を軽減）
+      Ticker.shared.maxFPS = MAX_FPS
 
       console.log('Live2DManager: PixiJS Application created (single instance)', { 
         width: containerWidth, 
@@ -218,106 +254,84 @@ export const Live2DManager = ({ characterAPath, characterBPath }: Live2DManagerP
     return () => {
       clearTimeout(timeoutId)
       if (app) {
-        app.destroy(true)
+        // モデルを先に破棄してからApplicationを破棄
+        if (modelARef.current) {
+          destroyModel(app, modelARef.current, 'A')
+          modelARef.current = null
+        }
+        if (modelBRef.current) {
+          destroyModel(app, modelBRef.current, 'B')
+          modelBRef.current = null
+        }
+        // Applicationを完全に破棄
+        app.destroy(true, {
+          children: true,
+          texture: true,
+          textureSource: true,
+        })
       }
     }
   }, [initApp, isCubismCoreLoaded, isCubismCoreLoadedGlobal])
 
+  // モデル読み込みの共通処理
+  const loadModel = useCallback(async (
+    currentApp: Application,
+    modelPath: string,
+    characterId: 'A' | 'B',
+    modelRef: React.MutableRefObject<Live2DModelType | null>,
+    setModel: (model: Live2DModelType | null) => void
+  ) => {
+    if (!canvasContainerRef.current || !modelPath || modelPath.trim() === '') return
+
+    try {
+      console.log(`Live2DManager: Loading model ${characterId}...`, { modelPath })
+      
+      // 既存のモデルがある場合は削除
+      if (modelRef.current) {
+        destroyModel(currentApp, modelRef.current, characterId)
+        modelRef.current = null
+        setModel(null)
+      }
+
+      // スクリプトロード後に動的にインポート
+      const { Live2DModel } = await import('pixi-live2d-display-lipsyncpatch/cubism4')
+      
+      const newModel = await Live2DModel.fromSync(modelPath, {
+        ticker: Ticker.shared,
+        autoHitTest: false,
+        autoFocus: false,
+      })
+
+      await new Promise<void>((resolve, reject) => {
+        newModel.once('load', () => resolve())
+        newModel.once('error', (e) => reject(e))
+        setTimeout(() => reject(new Error('Model load timeout')), MODEL_LOAD_TIMEOUT)
+      })
+
+      currentApp.stage.addChild(newModel as unknown as DisplayObject)
+      newModel.anchor.set(0.5, 0.5)
+      setModelPosition(currentApp, newModel, characterId)
+
+      modelRef.current = newModel
+      setModel(newModel)
+      console.log(`Live2DManager: Model ${characterId} added to stage`, { modelPath })
+
+      await Live2DHandler.resetToIdle(characterId)
+    } catch (error) {
+      console.error(`Failed to load Live2D model ${characterId}:`, error, { modelPath })
+    }
+  }, [])
+
   // モデルAの読み込み
   const loadModelA = useCallback(async (currentApp: Application, modelPath: string) => {
-    if (!canvasContainerRef.current || !modelPath || modelPath.trim() === '') return
-
-    try {
-      console.log('Live2DManager: Loading model A...', { modelPath })
-      
-      // 既存のモデルAがある場合は削除
-      if (modelARef.current) {
-        try {
-          currentApp.stage.removeChild(modelARef.current as unknown as DisplayObject)
-          modelARef.current.destroy()
-        } catch (error) {
-          console.error('Error destroying model A:', error)
-        }
-        modelARef.current = null
-        setModelA(null)
-      }
-
-      // スクリプトロード後に動的にインポート
-      const { Live2DModel } = await import('pixi-live2d-display-lipsyncpatch/cubism4')
-      
-      const newModel = await Live2DModel.fromSync(modelPath, {
-        ticker: Ticker.shared,
-        autoHitTest: false,
-        autoFocus: false,
-      })
-
-      await new Promise((resolve, reject) => {
-        newModel.once('load', () => resolve(true))
-        newModel.once('error', (e) => reject(e))
-        setTimeout(() => reject(new Error('Model load timeout')), 10000)
-      })
-
-      currentApp.stage.addChild(newModel as unknown as DisplayObject)
-      newModel.anchor.set(0.5, 0.5)
-      setModelPosition(currentApp, newModel, 'A')
-
-      modelARef.current = newModel
-      setModelA(newModel)
-      console.log('Live2DManager: Model A added to stage', { modelPath })
-
-      await Live2DHandler.resetToIdle('A')
-    } catch (error) {
-      console.error('Failed to load Live2D model A:', error, { modelPath })
-    }
-  }, [])
+    await loadModel(currentApp, modelPath, 'A', modelARef, setModelA)
+  }, [loadModel])
 
   // モデルBの読み込み
+
   const loadModelB = useCallback(async (currentApp: Application, modelPath: string) => {
-    if (!canvasContainerRef.current || !modelPath || modelPath.trim() === '') return
-
-    try {
-      console.log('Live2DManager: Loading model B...', { modelPath })
-      
-      // 既存のモデルBがある場合は削除
-      if (modelBRef.current) {
-        try {
-          currentApp.stage.removeChild(modelBRef.current as unknown as DisplayObject)
-          modelBRef.current.destroy()
-        } catch (error) {
-          console.error('Error destroying model B:', error)
-        }
-        modelBRef.current = null
-        setModelB(null)
-      }
-
-      // スクリプトロード後に動的にインポート
-      const { Live2DModel } = await import('pixi-live2d-display-lipsyncpatch/cubism4')
-      
-      const newModel = await Live2DModel.fromSync(modelPath, {
-        ticker: Ticker.shared,
-        autoHitTest: false,
-        autoFocus: false,
-      })
-
-      await new Promise((resolve, reject) => {
-        newModel.once('load', () => resolve(true))
-        newModel.once('error', (e) => reject(e))
-        setTimeout(() => reject(new Error('Model load timeout')), 10000)
-      })
-
-      currentApp.stage.addChild(newModel as unknown as DisplayObject)
-      newModel.anchor.set(0.5, 0.5)
-      setModelPosition(currentApp, newModel, 'B')
-
-      modelBRef.current = newModel
-      setModelB(newModel)
-      console.log('Live2DManager: Model B added to stage', { modelPath })
-
-      await Live2DHandler.resetToIdle('B')
-    } catch (error) {
-      console.error('Failed to load Live2D model B:', error, { modelPath })
-    }
-  }, [])
+    await loadModel(currentApp, modelPath, 'B', modelBRef, setModelB)
+  }, [loadModel])
 
   // モデル読み込みのuseEffect
   useEffect(() => {
@@ -383,11 +397,16 @@ export const Live2DManager = ({ characterAPath, characterBPath }: Live2DManagerP
     if (!app || (!modelA && !modelB)) return
 
     const onResize = debounce(() => {
-      if (!canvasContainerRef.current) return
+      if (!canvasContainerRef.current || !app) return
       
       const container = canvasContainerRef.current.parentElement
       const newWidth = container?.clientWidth || canvasContainerRef.current.clientWidth || window.innerWidth
       const newHeight = container?.clientHeight || canvasContainerRef.current.clientHeight || window.innerHeight
+
+      // サイズが変更されていない場合はスキップ
+      if (app.renderer.width === newWidth && app.renderer.height === newHeight) {
+        return
+      }
 
       app.renderer.resize(newWidth, newHeight)
 
@@ -397,7 +416,7 @@ export const Live2DManager = ({ characterAPath, characterBPath }: Live2DManagerP
       if (modelB) {
         setModelPosition(app, modelB, 'B')
       }
-    }, 250)
+    }, RESIZE_DEBOUNCE_MS)
 
     window.addEventListener('resize', onResize)
     onResize()

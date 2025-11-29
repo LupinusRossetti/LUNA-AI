@@ -108,26 +108,8 @@ if not "!STREAM_ID!"=="" (
     set "NEXT_PUBLIC_YOUTUBE_LIVE_ID=!STREAM_ID!"
 )
 
-REM Open Chrome with live stream or Studio page
-echo Opening Chrome...
-if "!OPEN_URL!"=="" (
-    echo Error: OPEN_URL is empty. Cannot open Chrome.
-    echo Please check the script output above.
-    pause
-    exit /b 1
-)
-echo Opening URL: !OPEN_URL!
-if exist "C:\Program Files\Google\Chrome\Application\chrome.exe" (
-    start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" "!OPEN_URL!"
-) else if exist "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" (
-    start "" "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" "!OPEN_URL!"
-) else if exist "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe" (
-    start "" "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe" "!OPEN_URL!"
-) else (
-    echo Chrome not found. Opening with default browser...
-    start "" "!OPEN_URL!"
-)
-timeout /t 2 /nobreak >nul
+REM Chrome URL to save for later use
+set "CHROME_URL=!OPEN_URL!"
 
 REM Clean up ports
 echo Killing processes on ports 3000 and 3001...
@@ -161,8 +143,50 @@ if exist "C:\Program Files\AivisSpeech\AivisSpeech.exe" (
 echo Starting Next.js...
 echo.
 timeout /t 2 /nobreak >nul
-start "" "http://localhost:3000"
-timeout /t 3 /nobreak >nul
-call npm run dev
 
-pause
+REM Start Next.js in a separate window
+start "AITuberKit Server" cmd /k "npm run dev"
+
+REM Wait for server to start
+echo Waiting for server to start...
+node scripts/wait-for-server.js
+if errorlevel 1 (
+    echo Error: Server did not start within timeout period.
+    pause
+    exit /b 1
+)
+
+REM Open Chrome after server is ready
+echo.
+echo Opening Chrome...
+if not "!CHROME_URL!"=="" (
+    echo Opening URL: !CHROME_URL!
+    if exist "C:\Program Files\Google\Chrome\Application\chrome.exe" (
+        start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --new-window --start-maximized "!CHROME_URL!"
+    ) else if exist "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" (
+        start "" "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" --new-window --start-maximized "!CHROME_URL!"
+    ) else if exist "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe" (
+        start "" "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe" --new-window --start-maximized "!CHROME_URL!"
+    ) else (
+        echo Chrome not found. Opening with default browser...
+        start "" "!CHROME_URL!"
+    )
+) else (
+    echo Opening localhost:3000...
+    if exist "C:\Program Files\Google\Chrome\Application\chrome.exe" (
+        start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --new-window --start-maximized "http://localhost:3000"
+    ) else if exist "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" (
+        start "" "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" --new-window --start-maximized "http://localhost:3000"
+    ) else if exist "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe" (
+        start "" "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe" --new-window --start-maximized "http://localhost:3000"
+    ) else (
+        echo Chrome not found. Opening with default browser...
+        start "" "http://localhost:3000"
+    )
+)
+
+echo.
+echo AITuberKit is running.
+echo Server window is open separately.
+echo Press any key to close this window (server will continue running)...
+pause >nul

@@ -42,6 +42,8 @@ import '@/lib/i18n'
 import { buildUrl } from '@/utils/buildUrl'
 import { YoutubeManager } from '@/components/youtubeManager'
 import toastStore from '@/features/stores/toast'
+import { ProjectButtonMenu } from '@/components/projectButtonMenu'
+import { EffectButtonMenu } from '@/components/effectButtonMenu'
 
 const Home = () => {
   const webcamStatus = homeStore((s) => s.webcamStatus)
@@ -83,6 +85,19 @@ const Home = () => {
       value: settingsStore((s) => s.characterPreset5),
     },
   ]
+
+  // 企画システムの初期化
+  useEffect(() => {
+    // なぞなぞ企画を登録
+    const { registerNZProject } = require('@/features/projects/nzProject/nzProject')
+    registerNZProject()
+    console.log('[index] 企画システムを初期化しました')
+    
+    // なぞなぞ企画用エフェクトを登録
+    const { registerNZProjectEffects } = require('@/features/projects/nzProject/effects')
+    registerNZProjectEffects()
+    console.log('[index] なぞなぞ企画用エフェクトを登録しました')
+  }, [])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -151,6 +166,8 @@ const Home = () => {
       <YoutubeManager />
       <CharacterPresetMenu />
       <ImageOverlay />
+      <ProjectButtonMenu />
+      <EffectButtonMenu />
     </div>
   )
 }

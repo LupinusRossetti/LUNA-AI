@@ -109,9 +109,15 @@ async function synthesizeVoice(
   }
 }
 
+// 定数
+const MIN_SYNTHESIS_INTERVAL_MS = 1000 // キャラクター別の最小間隔
+const GLOBAL_MIN_INTERVAL_MS = 500 // グローバルな最小間隔
+
 const createSpeakCharacter = () => {
   let lastTime = 0
   let prevFetchPromise: Promise<unknown> = Promise.resolve()
+  // 音声合成のレート制限をキャラクター別に管理（掛け合いモード対応）
+  const lastTimeMap = new Map<'A' | 'B' | undefined, number>()
 
   return (
     sessionId: string,
@@ -158,8 +164,14 @@ const createSpeakCharacter = () => {
 
     const processAndSynthesizePromise = prevFetchPromise.then(async () => {
       const now = Date.now()
-      if (now - lastTime < 1000) {
-        await wait(1000 - (now - lastTime))
+      // キャラクター別のレート制限（掛け合いモードで2体が同時に話せるように）
+      const lastTimeForCharacter = lastTimeMap.get(characterId) || 0
+      if (now - lastTimeForCharacter < MIN_SYNTHESIS_INTERVAL_MS) {
+        await wait(MIN_SYNTHESIS_INTERVAL_MS - (now - lastTimeForCharacter))
+      }
+      // グローバルなレート制限も維持（全体の負荷制御）
+      if (now - lastTime < GLOBAL_MIN_INTERVAL_MS) {
+        await wait(GLOBAL_MIN_INTERVAL_MS - (now - lastTime))
       }
 
       // ボタン停止でキャンセルされた場合はここで終了
@@ -198,7 +210,12 @@ const createSpeakCharacter = () => {
         handleTTSError(error, ss.selectVoice)
         return null
       } finally {
-        lastTime = Date.now()
+        const currentTime = Date.now()
+        lastTime = currentTime
+        // キャラクター別の最終実行時刻を更新
+        if (characterId) {
+          lastTimeMap.set(characterId, currentTime)
+        }
       }
 
       // 合成開始前に取得した initialToken をそのまま保持する

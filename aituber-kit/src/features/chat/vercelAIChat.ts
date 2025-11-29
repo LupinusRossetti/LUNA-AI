@@ -112,7 +112,7 @@ const buildRequestPayload = (messages: Message[], stream: boolean): RequestPaylo
   return {
     messages,
     apiKey: ss.googleKey,
-    model: process.env.NEXT_PUBLIC_GOOGLE_MODEL || defaultModel,
+    model: ss.selectAiModel || process.env.NEXT_PUBLIC_GOOGLE_MODEL || defaultModel,
     stream,
     useSearchGrounding: finalUseSearchGrounding,
     dynamicRetrievalThreshold: ss.dynamicRetrievalThreshold,

@@ -7,15 +7,39 @@ import { SaveButton } from './SaveButton'
 
 const Credentials = () => {
   const { t } = useTranslation()
-  const googleKey = settingsStore((s) => s.googleKey)
-  const youtubeApiKey = settingsStore((s) => s.youtubeApiKey)
   
-  // 環境変数から直接読み込む（settingsStoreには保存されない機密情報）
-  // これらの値は.envファイルから直接読み込まれるため、初期値は空文字列
+  // 環境変数から読み込む（settingsStoreには保存されない機密情報）
+  const [googleKey, setGoogleKey] = useState('')
+  const [youtubeApiKey, setYoutubeApiKey] = useState('')
   const [clientId, setClientId] = useState('')
   const [clientSecret, setClientSecret] = useState('')
   const [refreshToken, setRefreshToken] = useState('')
   const [windowsUser, setWindowsUser] = useState('')
+  const [isLoading, setIsLoading] = useState(true)
+  
+  // 環境変数を.envファイルから読み込む
+  useEffect(() => {
+    const loadCredentials = async () => {
+      try {
+        const response = await fetch('/api/get-env')
+        if (response.ok) {
+          const credentials = await response.json()
+          setGoogleKey(credentials.GOOGLE_API_KEY || '')
+          setYoutubeApiKey(credentials.NEXT_PUBLIC_YOUTUBE_API_KEY || '')
+          setClientId(credentials.CLIENT_ID || '')
+          setClientSecret(credentials.CLIENT_SECRET || '')
+          setRefreshToken(credentials.REFRESH_TOKEN || '')
+          setWindowsUser(credentials.WINDOWS_USER || '')
+        }
+      } catch (error) {
+        console.error('Error loading credentials:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    
+    loadCredentials()
+  }, [])
   
   // 注意: これらの値は.envファイルに保存されますが、settingsStoreには保存されません
   // 保存ボタンを押すと.envファイルに書き込まれます
@@ -56,7 +80,7 @@ const Credentials = () => {
           </div>
           <PasswordInput
             value={googleKey}
-            onChange={(value) => settingsStore.setState({ googleKey: value })}
+            onChange={setGoogleKey}
             placeholder="AIza..."
           />
         </div>
@@ -68,7 +92,7 @@ const Credentials = () => {
           </div>
           <PasswordInput
             value={youtubeApiKey}
-            onChange={(value) => settingsStore.setState({ youtubeApiKey: value })}
+            onChange={setYoutubeApiKey}
             placeholder="AIza..."
           />
         </div>
@@ -114,12 +138,10 @@ const Credentials = () => {
           <div className="text-sm text-text2 mb-2">
             パス作成に必要なWindowsユーザー名です（C:\Users\(****)）。
           </div>
-          <input
-            type="text"
+          <PasswordInput
             value={windowsUser}
-            onChange={(e) => setWindowsUser(e.target.value)}
+            onChange={setWindowsUser}
             placeholder="username"
-            className="text-ellipsis px-4 py-2 w-full bg-white hover:bg-white-hover rounded-lg"
           />
         </div>
       </div>

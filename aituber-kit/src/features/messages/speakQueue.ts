@@ -37,8 +37,13 @@ type SpeakTask = {
   onComplete?: () => void
 }
 
+// 定数
+const QUEUE_CHECK_DELAY_MS = 1500
+const MAX_QUEUE_SIZE = 100
+
 export class SpeakQueue {
-  private static readonly QUEUE_CHECK_DELAY = 1500
+  private static readonly QUEUE_CHECK_DELAY = QUEUE_CHECK_DELAY_MS
+  private static readonly MAX_QUEUE_SIZE = MAX_QUEUE_SIZE
   private queue: SpeakTask[] = []
   private isProcessing = false
   private currentSessionId: string | null = null
@@ -104,6 +109,11 @@ export class SpeakQueue {
   }
 
   async addTask(task: SpeakTask) {
+    // キューサイズの上限チェック（メモリ保護）
+    if (this.queue.length >= SpeakQueue.MAX_QUEUE_SIZE) {
+      console.warn(`Queue size limit reached (${SpeakQueue.MAX_QUEUE_SIZE}), removing oldest task`)
+      this.queue.shift() // 最も古いタスクを削除
+    }
     this.queue.push(task)
     // キューにタスクが追加された時点で発話中フラグを立てる
     homeStore.setState({ isSpeaking: true })

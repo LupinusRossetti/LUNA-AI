@@ -2,77 +2,93 @@ import { Talk } from './messages'
 import homeStore from '@/features/stores/home'
 import settingsStore from '@/features/stores/settings'
 
+// 定数
+const IDLE_MOTION_INTERVAL_MS = 5000
+
+// 感情とモーションの設定型
+interface EmotionMotionConfig {
+  expression?: string
+  motion?: string
+}
+
 export class Live2DHandler {
-  private static idleMotionInterval: NodeJS.Timeout | null = null // インターバルIDを保持
+  // 掛け合いモード対応: キャラクター別のアイドルモーションインターバル
+  private static idleMotionIntervals: Map<'A' | 'B' | undefined, NodeJS.Timeout | null> = new Map()
+  // AudioContextの再利用（メモリ最適化）
+  private static audioContext: AudioContext | null = null
+  
+  private static getAudioContext(): AudioContext {
+    if (!Live2DHandler.audioContext || Live2DHandler.audioContext.state === 'closed') {
+      Live2DHandler.audioContext = new AudioContext()
+    }
+    return Live2DHandler.audioContext
+  }
+
+  // Live2DViewerを取得する共通処理
+  private static getLive2DViewer(characterId?: 'A' | 'B'): any {
+    const hs = homeStore.getState()
+    const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
+    
+    if (isDialogueMode && characterId) {
+      return characterId === 'A' ? hs.live2dViewerA : hs.live2dViewerB
+    }
+    // 単体モード: レガシーのlive2dViewerを使用
+    return hs.live2dViewer
+  }
+
+  // 感情とモーションを取得する共通処理
+  private static getEmotionMotion(talk: Talk): EmotionMotionConfig {
+    const ss = settingsStore.getState()
+    let expression: string | undefined
+    let motion: string | undefined
+
+    switch (talk.emotion) {
+      case 'neutral':
+        expression = ss.neutralEmotions[Math.floor(Math.random() * ss.neutralEmotions.length)]
+        motion = ss.neutralMotionGroup
+        break
+      case 'happy':
+        expression = ss.happyEmotions[Math.floor(Math.random() * ss.happyEmotions.length)]
+        motion = ss.happyMotionGroup
+        break
+      case 'sad':
+        expression = ss.sadEmotions[Math.floor(Math.random() * ss.sadEmotions.length)]
+        motion = ss.sadMotionGroup
+        break
+      case 'angry':
+        expression = ss.angryEmotions[Math.floor(Math.random() * ss.angryEmotions.length)]
+        motion = ss.angryMotionGroup
+        break
+      case 'relaxed':
+        expression = ss.relaxedEmotions[Math.floor(Math.random() * ss.relaxedEmotions.length)]
+        motion = ss.relaxedMotionGroup
+        break
+      case 'surprised':
+        expression = ss.surprisedEmotions[Math.floor(Math.random() * ss.surprisedEmotions.length)]
+        motion = ss.surprisedMotionGroup
+        break
+    }
+
+    return { expression, motion }
+  }
 
   static async speak(
     audioBuffer: ArrayBuffer,
     talk: Talk,
     isNeedDecode: boolean = true
   ) {
-    const hs = homeStore.getState()
-    const ss = settingsStore.getState()
-    
-    // 掛け合いモード: characterIdに応じてA/B別々のLive2Dインスタンスを使用
-    const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
-    let live2dViewer: any = null
-    
-    if (isDialogueMode && talk.characterId) {
-      live2dViewer = talk.characterId === 'A' ? hs.live2dViewerA : hs.live2dViewerB
-    } else {
-      // 単体モード: レガシーのlive2dViewerを使用
-      live2dViewer = hs.live2dViewer
-    }
-    
+    const live2dViewer = Live2DHandler.getLive2DViewer(talk.characterId)
     if (!live2dViewer) return
 
-    let expression: string | undefined
-    let motion: string | undefined
-    switch (talk.emotion) {
-      case 'neutral':
-        expression =
-          ss.neutralEmotions[
-            Math.floor(Math.random() * ss.neutralEmotions.length)
-          ]
-        motion = ss.neutralMotionGroup
-        break
-      case 'happy':
-        expression =
-          ss.happyEmotions[Math.floor(Math.random() * ss.happyEmotions.length)]
-        motion = ss.happyMotionGroup
-        break
-      case 'sad':
-        expression =
-          ss.sadEmotions[Math.floor(Math.random() * ss.sadEmotions.length)]
-        motion = ss.sadMotionGroup
-        break
-      case 'angry':
-        expression =
-          ss.angryEmotions[Math.floor(Math.random() * ss.angryEmotions.length)]
-        motion = ss.angryMotionGroup
-        break
-      case 'relaxed':
-        expression =
-          ss.relaxedEmotions[
-            Math.floor(Math.random() * ss.relaxedEmotions.length)
-          ]
-        motion = ss.relaxedMotionGroup
-        break
-      case 'surprised':
-        expression =
-          ss.surprisedEmotions[
-            Math.floor(Math.random() * ss.surprisedEmotions.length)
-          ]
-        motion = ss.surprisedMotionGroup
-    }
+    const { expression, motion } = Live2DHandler.getEmotionMotion(talk)
 
-    // AudioContextの作成
-    const audioContext = new AudioContext()
+    // AudioContextの再利用（メモリ最適化）
+    const audioContext = Live2DHandler.getAudioContext()
     let decodedAudio: AudioBuffer
 
     if (isNeedDecode) {
       // 圧縮音声の場合
-      decodedAudio = await audioContext.decodeAudioData(audioBuffer)
+      decodedAudio = await audioContext.decodeAudioData(audioBuffer.slice(0)) // sliceでコピーを作成
     } else {
       // PCM16形式の場合
       const pcmData = new Int16Array(audioBuffer)
@@ -86,6 +102,7 @@ export class Live2DHandler {
     }
 
     // デコードされた音声データをBlobに変換
+    // OfflineAudioContextは毎回作成する必要がある（再利用不可）
     const offlineContext = new OfflineAudioContext(
       decodedAudio.numberOfChannels,
       decodedAudio.length,
@@ -107,7 +124,9 @@ export class Live2DHandler {
       live2dViewer.expression(expression)
     }
     if (motion) {
-      Live2DHandler.stopIdleMotion()
+      // 話しているキャラクターのアイドルモーションを停止
+      const characterId = talk.characterId
+      Live2DHandler.stopIdleMotion(characterId)
       live2dViewer.motion(motion, undefined, 3)
     }
 
@@ -143,44 +162,20 @@ export class Live2DHandler {
   }
 
   static async stopSpeaking(characterId?: 'A' | 'B') {
-    const hs = homeStore.getState()
-    
-    // 掛け合いモード: characterIdに応じてA/B別々のLive2Dインスタンスを停止
-    const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
-    if (isDialogueMode && characterId) {
-      const live2dViewer = characterId === 'A' ? hs.live2dViewerA : hs.live2dViewerB
-      if (live2dViewer) {
-        live2dViewer.stopSpeaking()
-      }
-    } else {
-      // 単体モード: レガシーのlive2dViewerを停止
-      const live2dViewer = hs.live2dViewer
-      if (live2dViewer) {
-        live2dViewer.stopSpeaking()
-      }
+    const live2dViewer = Live2DHandler.getLive2DViewer(characterId)
+    if (live2dViewer) {
+      live2dViewer.stopSpeaking()
     }
   }
 
   static async resetToIdle(characterId?: 'A' | 'B') {
-    // インターバルを停止
-    Live2DHandler.stopIdleMotion()
+    // キャラクター別のインターバルを停止
+    Live2DHandler.stopIdleMotion(characterId)
 
-    const hs = homeStore.getState()
-    const ss = settingsStore.getState()
-    
-    // 掛け合いモード: characterIdに応じてA/B別々のLive2Dインスタンスをリセット
-    const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
-    let live2dViewer: any = null
-    
-    if (isDialogueMode && characterId) {
-      live2dViewer = characterId === 'A' ? hs.live2dViewerA : hs.live2dViewerB
-    } else {
-      // 単体モード: レガシーのlive2dViewerを使用
-      live2dViewer = hs.live2dViewer
-    }
-    
+    const live2dViewer = Live2DHandler.getLive2DViewer(characterId)
     if (!live2dViewer) return
 
+    const ss = settingsStore.getState()
     // Live2Dモデル以外の場合は早期リターン
     if (ss.modelType !== 'live2d') return
 
@@ -192,45 +187,60 @@ export class Live2DHandler {
       live2dViewer.expression(expression)
     }
 
-    // 5秒ごとのアイドルモーション再生を開始
-    Live2DHandler.startIdleMotion(idleMotion)
+    // アイドルモーション再生を開始（キャラクター別）
+    Live2DHandler.startIdleMotion(idleMotion, characterId)
   }
 
-  // アイドルモーションのインターバル開始
-  private static startIdleMotion(idleMotion: string) {
+  // アイドルモーションのインターバル開始（キャラクター別対応）
+  private static startIdleMotion(idleMotion: string, characterId?: 'A' | 'B') {
     const ss = settingsStore.getState()
     if (ss.modelType !== 'live2d') return
 
-    this.idleMotionInterval = setInterval(() => {
+    // 既存のインターバルがあれば停止
+    this.stopIdleMotion(characterId)
+
+    const intervalId = setInterval(() => {
       const currentSs = settingsStore.getState()
       if (currentSs.modelType !== 'live2d') {
-        this.stopIdleMotion()
+        this.stopIdleMotion(characterId)
         return
       }
 
       const hs = homeStore.getState()
-      const viewer = hs.live2dViewer
+      const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
+      
+      // 掛け合いモード: characterIdに応じてA/B別々のviewerを使用
+      let viewer: any = null
+      if (isDialogueMode && characterId) {
+        viewer = characterId === 'A' ? hs.live2dViewerA : hs.live2dViewerB
+      } else {
+        viewer = hs.live2dViewer
+      }
 
       // Viewerが存在しない、または破棄済みの場合はインターバルを停止
       if (!viewer || (viewer as any).destroyed) {
-        this.stopIdleMotion()
+        this.stopIdleMotion(characterId)
         return
       }
 
       try {
         viewer.motion(idleMotion)
       } catch (error) {
-        console.error('Idle motion failed:', error)
-        this.stopIdleMotion()
+        console.error('Idle motion failed:', error, { characterId })
+        this.stopIdleMotion(characterId)
       }
-    }, 5000)
+    }, IDLE_MOTION_INTERVAL_MS)
+
+    // インターバルIDを保存
+    this.idleMotionIntervals.set(characterId, intervalId)
   }
 
-  // アイドルモーションのインターバル停止
-  private static stopIdleMotion() {
-    if (this.idleMotionInterval) {
-      clearInterval(this.idleMotionInterval)
-      this.idleMotionInterval = null
+  // アイドルモーションのインターバル停止（キャラクター別対応）
+  private static stopIdleMotion(characterId?: 'A' | 'B') {
+    const intervalId = this.idleMotionIntervals.get(characterId)
+    if (intervalId) {
+      clearInterval(intervalId)
+      this.idleMotionIntervals.set(characterId, null)
     }
   }
 

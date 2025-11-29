@@ -258,6 +258,7 @@ interface General {
   slideMode: boolean
   messageReceiverEnabled: boolean
   clientId: string
+  selectAiModel: string
   useSearchGrounding: boolean
   dynamicRetrievalThreshold: number
   maxPastMessages: number
@@ -570,6 +571,7 @@ const getInitialValuesFromEnv = (): SettingsState => ({
   messageReceiverEnabled:
     process.env.NEXT_PUBLIC_MESSAGE_RECEIVER_ENABLED === 'true',
   clientId: process.env.NEXT_PUBLIC_CLIENT_ID || '',
+  selectAiModel: process.env.NEXT_PUBLIC_SELECT_AI_MODEL || 'gemini-2.0-flash',
   useSearchGrounding: process.env.NEXT_PUBLIC_USE_SEARCH_GROUNDING === 'true',
   dynamicRetrievalThreshold:
     parseFloat(process.env.NEXT_PUBLIC_DYNAMIC_RETRIEVAL_THRESHOLD || '0.3') ||
@@ -775,9 +777,12 @@ const settingsStore = create<SettingsState>()(
       changeEnglishToJapanese: state.changeEnglishToJapanese,
       includeTimestampInUserMessage: state.includeTimestampInUserMessage,
       externalLinkageMode: state.externalLinkageMode,
+      slideMode: state.slideMode,
       messageReceiverEnabled: state.messageReceiverEnabled,
       clientId: state.clientId,
+      selectAiModel: state.selectAiModel,
       useSearchGrounding: state.useSearchGrounding,
+      dynamicRetrievalThreshold: state.dynamicRetrievalThreshold,
       openaiTTSVoice: state.openaiTTSVoice,
       openaiTTSModel: state.openaiTTSModel,
       openaiTTSSpeed: state.openaiTTSSpeed,

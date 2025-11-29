@@ -1,7 +1,9 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import homeStore from '@/features/stores/home'
 import settingsStore from '@/features/stores/settings'
 import { fetchAndProcessComments } from '@/features/youtube/youtubeComments'
+import { processNextCommentFromQueue } from '@/features/youtube/commentQueue'
+import { commentQueueStore } from '@/features/stores/commentQueueStore'
 
 const INTERVAL_MILL_SECONDS_RETRIEVING_COMMENTS = 10000 // 10秒
 
@@ -29,6 +31,9 @@ const useYoutube = ({ handleSendChat }: Params) => {
     }
   }, [])
 
+  // キュー処理中のフラグ（無限ループ防止）
+  const isProcessingQueueRef = useRef(false)
+
   const fetchAndProcessCommentsCallback = useCallback(async () => {
     const ss = settingsStore.getState()
     const hs = homeStore.getState()
@@ -46,12 +51,78 @@ const useYoutube = ({ handleSendChat }: Params) => {
     if (
       !ss.youtubeLiveId ||
       !ss.youtubeApiKey ||
-      hs.chatProcessing ||
-      hs.chatProcessingCount > 0 ||
       !ss.youtubeMode ||
       !ss.youtubePlaying
     ) {
       console.log('[useYoutube] 条件を満たさないため、コメント取得をスキップ')
+      return
+    }
+
+    // 対応中モードの判定
+    const isProcessingComment = hs.chatProcessing || hs.chatProcessingCount > 0
+
+    // 対応受付中モードの場合、キューから処理
+    if (!isProcessingComment && !isProcessingQueueRef.current) {
+      const { commentQueue, projectQueue } = commentQueueStore.getState()
+      
+      if (commentQueue.length > 0 || projectQueue.length > 0) {
+        console.log('[useYoutube] 対応受付中モード: キューから処理を開始', {
+          commentQueueLength: commentQueue.length,
+          projectQueueLength: projectQueue.length
+        })
+        
+        isProcessingQueueRef.current = true
+        
+        try {
+          // キューが空になるまで処理
+          let processedCount = 0
+          const maxProcessPerCycle = 10 // 1回のサイクルで処理する最大数
+          
+          while (processedCount < maxProcessPerCycle) {
+            const nextComment = processNextCommentFromQueue()
+            
+            if (!nextComment) {
+              console.log('[useYoutube] キューが空になりました')
+              break
+            }
+            
+            console.log('[useYoutube] キューからコメントを処理:', {
+              userName: nextComment.userName,
+              comment: nextComment.comment.substring(0, 50),
+              type: nextComment.prefixType,
+              priority: nextComment.priority
+            })
+            
+            // メッセージが空の場合はスキップ
+            if (!nextComment.message || nextComment.message.trim() === '') {
+              console.log('[useYoutube] メッセージが空のためスキップします')
+              processedCount++
+              continue
+            }
+            
+            // handleSendChatにYouTubeコメント情報を渡す
+            await handleSendChat(nextComment.message, nextComment.characterId, {
+              isYouTubeComment: true,
+              listenerName: nextComment.userName
+            })
+            
+            processedCount++
+            
+            // 処理開始後はループを抜ける（次のサイクルで続きを処理）
+            break
+          }
+        } finally {
+          isProcessingQueueRef.current = false
+        }
+        
+        // キューから処理した場合は、新しいコメント取得はスキップ（次のサイクルで）
+        return
+      }
+    }
+
+    // 対応中モードの場合は、新しいコメント取得をスキップ
+    if (isProcessingComment) {
+      console.log('[useYoutube] 対応中モードのため、コメント取得をスキップ')
       return
     }
 

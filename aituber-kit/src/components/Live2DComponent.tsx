@@ -475,16 +475,22 @@ const Live2DComponent = ({ characterId, modelPath }: Live2DComponentProps = {} a
       loadedModelPathRef.current = modelPath
       console.log('Live2D model added to stage', { characterId, modelPath, stageChildren: currentApp.stage.children.length })
       
+      // 定数
+      const MODEL_CHECK_INTERVAL = 5000
+      const MODEL_CHECK_DURATION = 30000
+
       // モデルが削除されないように保護（定期的にチェック）
+      // パフォーマンス最適化: チェック間隔を延長してCPU負荷を軽減
       const checkModelInterval = setInterval(() => {
         if (modelRef.current && !currentApp.stage.children.includes(modelRef.current as unknown as DisplayObject)) {
           console.warn('Model was removed from stage, re-adding...', { characterId, modelPath })
           currentApp.stage.addChild(modelRef.current as unknown as DisplayObject)
         }
-      }, 1000)
+      }, MODEL_CHECK_INTERVAL)
       
       // クリーンアップ時にインターバルを削除
-      setTimeout(() => clearInterval(checkModelInterval), 60000) // 60秒後に停止
+      // モデルが安定したら停止
+      setTimeout(() => clearInterval(checkModelInterval), MODEL_CHECK_DURATION)
       
       // Don't set live2dViewer here, it will be set in the useEffect with position controls
 

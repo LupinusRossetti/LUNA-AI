@@ -11,6 +11,15 @@ import {
 import { processAIResponse } from '../chat/handlers'
 import homeStore from '@/features/stores/home'
 import { messageSelectors } from '../messages/messageSelectors'
+import { v4 as uuidv4 } from 'uuid'
+import { commentQueueStore, QueuedComment } from '@/features/stores/commentQueueStore'
+import { projectModeStore } from '@/features/stores/projectModeStore'
+import {
+  enqueueCommentByMode,
+  processNextCommentFromQueue,
+} from './commentQueue'
+import { projectManager } from '@/features/projects/projectBase'
+import { handleProjectProposal, handleProjectCommand } from '@/features/projects/projectBase'
 
 export const getLiveChatId = async (
   liveId: string,
@@ -108,16 +117,29 @@ type YouTubeComment = {
 type YouTubeComments = YouTubeComment[]
 
 /**
- * コメントの接頭辞を判定して、キャラクターIDとメッセージを返す
- * @param comment コメントテキスト
- * @returns { characterId: 'A' | 'B' | undefined, message: string } キャラクターIDと接頭辞を除去したメッセージ
+ * 接頭辞解析結果の型定義
  */
-const parseCommentPrefix = (comment: string): { characterId: 'A' | 'B' | undefined, message: string } => {
-  // 全角を半角に変換（I, R, F）
-  const normalizedComment = comment.replace(/[ＩＲＦ]/g, (char) => {
+export interface ParsedComment {
+  characterId?: 'A' | 'B'
+  message: string
+  type: 'chat' | 'project-proposal' | 'project-command' | 'other'
+  priority: 'high' | 'low'
+  prefix: string // 検出された接頭辞（例: "IR", "#NZ", "/NZ"）
+}
+
+/**
+ * コメントの接頭辞を判定して、キャラクターID、メッセージ、タイプ、優先度を返す
+ * @param comment コメントテキスト
+ * @returns ParsedComment 解析結果
+ */
+const parseCommentPrefix = (comment: string): ParsedComment => {
+  // 全角を半角に変換（I, R, F, #, /）
+  const normalizedComment = comment.replace(/[ＩＲＦ＃／]/g, (char) => {
     if (char === 'Ｉ') return 'I'
     if (char === 'Ｒ') return 'R'
     if (char === 'Ｆ') return 'F'
+    if (char === '＃') return '#'
+    if (char === '／') return '/'
     return char
   })
   
@@ -133,22 +155,93 @@ const parseCommentPrefix = (comment: string): { characterId: 'A' | 'B' | undefin
   const characterAPrefix = characterNames.characterA.nickname.substring(0, 2).toUpperCase()
   const characterBPrefix = characterNames.characterB.nickname.substring(0, 2).toUpperCase()
   
-  // キャラクターAのプレフィックスで始まる場合
+  // IR/FI 接頭辞（キャラクターコメント）
   if (upperComment.startsWith(characterAPrefix)) {
     const afterPrefix = trimmedComment.substring(characterAPrefix.length)
     const message = afterPrefix.replace(/^[\s\u3000]+/, '').trim()
-    return { characterId: 'A', message }
+    return {
+      characterId: 'A',
+      message,
+      type: 'chat',
+      priority: 'high',
+      prefix: characterAPrefix,
+    }
   }
   
-  // キャラクターBのプレフィックスで始まる場合
   if (upperComment.startsWith(characterBPrefix)) {
     const afterPrefix = trimmedComment.substring(characterBPrefix.length)
     const message = afterPrefix.replace(/^[\s\u3000]+/, '').trim()
-    return { characterId: 'B', message }
+    return {
+      characterId: 'B',
+      message,
+      type: 'chat',
+      priority: 'high',
+      prefix: characterBPrefix,
+    }
+  }
+  
+  // 企画提案 (#xx) - アルファベット2文字 + 任意の文字
+  if (trimmedComment.startsWith('#')) {
+    const match = trimmedComment.match(/^#([A-Za-z]{2})(.*)$/i)
+    if (match) {
+      const prefix = `#${match[1].toUpperCase()}`
+      const message = match[2].trim()
+      return {
+        characterId: undefined,
+        message,
+        type: 'project-proposal',
+        priority: 'low',
+        prefix,
+      }
+    }
+    // #の後にアルファベット2文字がない場合も企画提案として扱う（互換性のため）
+    const parts = trimmedComment.split(/\s+/, 2)
+    const prefix = parts[0].toUpperCase()
+    const message = parts.length > 1 ? parts[1] : ''
+    return {
+      characterId: undefined,
+      message,
+      type: 'project-proposal',
+      priority: 'low',
+      prefix,
+    }
+  }
+  
+  // 企画コマンド (/xx) - アルファベット2文字 + 任意の文字
+  if (trimmedComment.startsWith('/')) {
+    const match = trimmedComment.match(/^\/([A-Za-z]{2})(.*)$/i)
+    if (match) {
+      const prefix = `/${match[1].toUpperCase()}`
+      const message = match[2].trim()
+      return {
+        characterId: undefined,
+        message,
+        type: 'project-command',
+        priority: 'low',
+        prefix,
+      }
+    }
+    // /の後にアルファベット2文字がない場合も企画コマンドとして扱う（互換性のため）
+    const parts = trimmedComment.split(/\s+/, 2)
+    const prefix = parts[0].toUpperCase()
+    const message = parts.length > 1 ? parts[1] : ''
+    return {
+      characterId: undefined,
+      message,
+      type: 'project-command',
+      priority: 'low',
+      prefix,
+    }
   }
   
   // 接頭辞がない場合
-  return { characterId: undefined, message: normalizedComment }
+  return {
+    characterId: undefined,
+    message: normalizedComment,
+    type: 'other',
+    priority: 'low',
+    prefix: '',
+  }
 }
 
 const retrieveLiveComments = async (
@@ -314,84 +407,151 @@ export const fetchAndProcessComments = async (
         (token: string) =>
           settingsStore.setState({ youtubeNextPageToken: token })
       )
-      // ランダムなコメントを選択して送信
+      // コメントを処理
       if (youtubeComments.length > 0) {
         settingsStore.setState({ youtubeNoCommentCount: 0 })
         settingsStore.setState({ youtubeSleepMode: false })
         
-        // IR/FI接頭辞を持つコメントを優先的に選択
-        const commentsWithPrefix = youtubeComments.filter(c => {
-          const { characterId } = parseCommentPrefix(c.userComment)
-          return characterId !== undefined
+        const { currentMode, projectState } = projectModeStore.getState()
+        const isProcessingComment = hs.chatProcessing || hs.chatProcessingCount > 0
+        
+        console.log('[youtubeComments] モード状態:', {
+          currentMode,
+          projectState,
+          isProcessingComment,
+          chatProcessing: hs.chatProcessing,
+          chatProcessingCount: hs.chatProcessingCount
         })
         
-        console.log('[youtubeComments] 接頭辞を持つコメント数:', commentsWithPrefix.length)
-        if (commentsWithPrefix.length > 0) {
-          console.log('[youtubeComments] 接頭辞を持つコメント例:', commentsWithPrefix.slice(0, 3).map(c => ({
-            userName: c.userName,
-            comment: c.userComment.substring(0, 50),
-            parsed: parseCommentPrefix(c.userComment)
-          })))
-        }
-        
-        let selectedComment = ''
-        let selectedCommentObj: YouTubeComment | undefined
-        
-        // 接頭辞を持つコメントがある場合は、その中から選択
-        if (commentsWithPrefix.length > 0) {
-          if (ss.conversationContinuityMode) {
-            selectedComment = await getBestComment(chatLog, commentsWithPrefix)
-          } else {
-            selectedComment =
-              commentsWithPrefix[Math.floor(Math.random() * commentsWithPrefix.length)]
-                .userComment
+        // 各コメントを解析してキューに追加または処理
+        for (const ytComment of youtubeComments) {
+          const parsed = parseCommentPrefix(ytComment.userComment)
+          const listenerName = ytComment.userName || '不明なリスナー'
+          
+          console.log('[youtubeComments] コメント解析:', {
+            userName: listenerName,
+            comment: ytComment.userComment.substring(0, 50),
+            parsed
+          })
+          
+          // メッセージが空の場合は無視
+          if (!parsed.message || parsed.message.trim() === '') {
+            console.log('[youtubeComments] メッセージが空のため無視します')
+            continue
           }
-          selectedCommentObj = commentsWithPrefix.find(c => c.userComment === selectedComment)
-        } else {
-          // 接頭辞がないコメントは無視（通常モードではIR/FIのみ反応）
-          console.log('[youtubeComments] IR/FI接頭辞がないコメントは無視されます')
-          console.log('[youtubeComments] 取得したコメント（接頭辞なし）:', youtubeComments.slice(0, 5).map(c => ({
-            userName: c.userName,
-            comment: c.userComment.substring(0, 50)
-          })))
-          settingsStore.setState({ youtubeNoCommentCount: ss.youtubeNoCommentCount + 1 })
-          return
+          
+          // キューアイテムを作成
+          const queuedComment: QueuedComment = {
+            id: uuidv4(),
+            timestamp: Date.now(),
+            userName: listenerName,
+            userIconUrl: ytComment.userIconUrl,
+            comment: ytComment.userComment,
+            characterId: parsed.characterId,
+            message: parsed.message,
+            priority: parsed.priority,
+            prefixType: parsed.type === 'chat' ? 'character' : 
+                       parsed.type === 'project-proposal' ? 'project-proposal' :
+                       parsed.type === 'project-command' ? 'project-command' : 'none',
+            prefix: parsed.prefix,
+          }
+          
+          // 企画提案の場合
+          if (parsed.type === 'project-proposal' && !isProcessingComment) {
+            const project = projectManager.findProjectByProposalPrefix(parsed.prefix)
+            if (project) {
+              console.log('[youtubeComments] 企画提案を処理:', project.id, listenerName)
+              await handleProjectProposal(project, listenerName, parsed.message)
+              continue
+            }
+          }
+          
+          // 企画コマンドの場合（企画実行中のみ）
+          if (parsed.type === 'project-command' && projectState === 'projectRunning') {
+            const project = projectManager.findProjectByCommandPrefix(parsed.prefix)
+            if (project) {
+              console.log('[youtubeComments] 企画コマンドを処理:', project.id, listenerName, parsed.prefix)
+              // キューに追加（企画実行中はキューで管理）
+              enqueueCommentByMode(queuedComment)
+              continue
+            }
+          }
+          
+          // モード別のルールに従ってキューに追加または破棄
+          const enqueued = enqueueCommentByMode(queuedComment)
+          
+          if (enqueued) {
+            console.log('[youtubeComments] コメントをキューに追加:', {
+              userName: listenerName,
+              comment: ytComment.userComment.substring(0, 50),
+              type: parsed.type,
+              priority: parsed.priority
+            })
+          } else {
+            console.log('[youtubeComments] コメントを破棄（モード別ルール）:', {
+              userName: listenerName,
+              comment: ytComment.userComment.substring(0, 50),
+              type: parsed.type,
+              currentMode,
+              projectState
+            })
+          }
         }
         
-        console.log('selectedYoutubeComment:', selectedComment)
-        
-        // 選択されたコメントのリスナー名を取得
-        const listenerName = selectedCommentObj?.userName || '不明なリスナー'
-        
-        // 接頭辞を解析
-        const { characterId, message } = parseCommentPrefix(selectedComment)
-        
-        console.log('[youtubeComments] コメント解析結果:', {
-          listenerName,
-          originalComment: selectedComment.substring(0, 50),
-          characterId,
-          message: message.substring(0, 50)
-        })
-        
-        // メッセージが空の場合は無視
-        if (!message || message.trim() === '') {
-          console.log('[youtubeComments] メッセージが空のため無視します')
-          return
-        }
-
-        // handleSendChatにYouTubeコメント情報を渡す
-        if (typeof handleSendChat === 'function') {
-          // characterIdとoptionsを指定して送信
-          await handleSendChat(message, characterId, {
-            isYouTubeComment: true,
-            listenerName: listenerName
-          })
+        // 対応受付中モードの場合、キューから処理
+        if (!isProcessingComment) {
+          console.log('[youtubeComments] 対応受付中モード: キューから処理を開始')
+          
+          // キューが空になるまで処理
+          let processedCount = 0
+          const maxProcessPerCycle = 10 // 1回のサイクルで処理する最大数（無限ループ防止）
+          
+          while (processedCount < maxProcessPerCycle) {
+            const nextComment = processNextCommentFromQueue()
+            
+            if (!nextComment) {
+              console.log('[youtubeComments] キューが空になりました')
+              break
+            }
+            
+            console.log('[youtubeComments] キューからコメントを処理:', {
+              userName: nextComment.userName,
+              comment: nextComment.comment.substring(0, 50),
+              type: nextComment.prefixType,
+              priority: nextComment.priority
+            })
+            
+            // メッセージが空の場合はスキップ
+            if (!nextComment.message || nextComment.message.trim() === '') {
+              console.log('[youtubeComments] メッセージが空のためスキップします')
+              processedCount++
+              continue
+            }
+            
+            // 企画コマンドの場合
+            if (nextComment.prefixType === 'project-command') {
+              const project = projectManager.findProjectByCommandPrefix(nextComment.prefix)
+              if (project && project.onCommand) {
+                await project.onCommand(nextComment.userName, nextComment.prefix, nextComment.message)
+                processedCount++
+                continue
+              }
+            }
+            
+            // 通常のコメントの場合
+            // handleSendChatにYouTubeコメント情報を渡す
+            await handleSendChat(nextComment.message, nextComment.characterId, {
+              isYouTubeComment: true,
+              listenerName: nextComment.userName
+            })
+            
+            processedCount++
+            
+            // 処理開始後はループを抜ける（次のサイクルで続きを処理）
+            break
+          }
         } else {
-          // handleSendChatが関数でない場合（非同期関数など）
-          await handleSendChat(message, characterId, {
-            isYouTubeComment: true,
-            listenerName: listenerName
-          })
+          console.log('[youtubeComments] 対応中モード: コメントはキューに追加済み、処理は後で実行されます')
         }
     } else {
       console.log('[youtubeComments] コメントが取得できませんでした（コメント数: 0）')

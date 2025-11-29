@@ -24,7 +24,7 @@ const YouTube = () => {
     settingsStore.setState({ youtubeMode })
 
     if (youtubeMode) {
-      homeStore.setState({ modalImage: '' })
+      // modalImageはクリアしない（マルチモーダル機能を有効にするため）
       menuStore.setState({ showWebcam: false })
       settingsStore.setState({ slideMode: false })
       slideStore.setState({ isPlaying: false })

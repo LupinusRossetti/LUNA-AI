@@ -1385,6 +1385,17 @@ export const handleSendChatFn = () => async (
 
   const sessionId = generateSessionId()
 
+  // ルピナスの承認判定（提案待機中の場合）
+  if (!isYouTubeComment) {
+    // YouTubeコメント以外（チャット欄からのメッセージ）の場合のみ判定
+    const { checkLupinusApproval } = await import('@/features/projects/nzProject/nzProject')
+    const approvalResult = await checkLupinusApproval(newMessage)
+    if (approvalResult !== null) {
+      // 承認または拒否が検出された場合、通常の処理をスキップ
+      return
+    }
+  }
+
   // メッセージ末尾に「サーチ」または「search」がある場合、サーチグラウンディングを強制有効化
   // サーチグラウンディングが必要そうなキーワードを検出する関数
   const shouldUseSearchGrounding = (messageText: string): boolean => {
@@ -1491,7 +1502,13 @@ export const handleSendChatFn = () => async (
 
   homeStore.setState({ chatProcessing: true })
 
-  let userMessageContent: Message['content'] = newMessage
+  // マルチモーダル対応: modalImageがある場合はメッセージに画像を含める
+  let userMessageContent: Message['content'] = modalImage
+    ? [
+        { type: 'text' as const, text: newMessage },
+        { type: 'image' as const, image: modalImage },
+      ]
+    : newMessage
 
   // === 内部AIログ更新 ===
   homeStore.getState().upsertMessage({
