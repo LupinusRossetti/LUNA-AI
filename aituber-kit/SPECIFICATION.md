@@ -35,10 +35,14 @@ Next.js ベースのフロントエンドアプリケーションとして実装
 
 ### 主要キャラクター
 
+キャラクター名は環境変数から取得され、ハードコーディングはありません。共通ユーティリティ（`src/utils/characterNames.ts`）を使用して取得します。
+
 #### ルピナス・ロゼッティ (User/Streamer)
 - **役割**: 人間の配信者
 - **機能**: システムを操作し、企画を進行する
 - **入力方法**: チャット入力または音声入力
+- **環境変数**: `NEXT_PUBLIC_STREAMER_NAME`（デフォルト: "ルピナス・ロゼッティ"）
+- **ニックネーム環境変数**: `NEXT_PUBLIC_STREAMER_NICKNAME`（デフォルト: フルネームから自動抽出）
 
 #### アイリス・ロゼッティ (Character A)
 - **役割**: AI キャラクター（次女）
@@ -47,6 +51,8 @@ Next.js ベースのフロントエンドアプリケーションとして実装
 - **一人称**: あたし
 - **視聴者呼称**: みんな（全体）、名前+さん（個人）
 - **プロンプトファイル**: `prompts/iris.txt`
+- **環境変数**: `NEXT_PUBLIC_CHARACTER_A_NAME`（デフォルト: "アイリス・ロゼッティ"）
+- **ニックネーム環境変数**: `NEXT_PUBLIC_CHARACTER_A_NICKNAME`（デフォルト: フルネームから自動抽出）
 
 #### フィオナ・ロゼッティ (Character B)
 - **役割**: AI キャラクター（三女）
@@ -55,6 +61,17 @@ Next.js ベースのフロントエンドアプリケーションとして実装
 - **一人称**: わたし
 - **視聴者呼称**: みなさん（全体）、名前+さん（個人）
 - **プロンプトファイル**: `prompts/fiona.txt`
+- **環境変数**: `NEXT_PUBLIC_CHARACTER_B_NAME`（デフォルト: "フィオナ・ロゼッティ"）
+- **ニックネーム環境変数**: `NEXT_PUBLIC_CHARACTER_B_NICKNAME`（デフォルト: フルネームから自動抽出）
+
+### キャラクター名取得ユーティリティ
+
+`src/utils/characterNames.ts` に共通のユーティリティ関数が実装されています：
+
+- `getCharacterNames()`: 全キャラクター名とニックネームを取得
+- `getCharacterNameById(characterId)`: キャラクターIDから名前情報を取得
+- `getCharacterNicknameById(characterId)`: キャラクターIDからニックネームを取得
+- `getCharacterFullNameById(characterId)`: キャラクターIDからフルネームを取得
 
 ---
 
@@ -301,6 +318,27 @@ Gemini には、XML タグのみを出力するよう指示します：
 
 ### 実装仕様
 
+#### 2段階処理（掛け合いモード時）
+
+掛け合いモード（`NEXT_PUBLIC_DIALOGUE_MODE=true`）でサーチグラウンディングを使用する場合、2段階処理が実行されます：
+
+1. **Stage 1（情報取得）**:
+   - サーチグラウンディングを使用して最新情報をプレーンテキストで取得
+   - キャラクター設定は適用せず、純粋に情報のみを取得
+   - XMLタグが含まれていた場合は除去
+
+2. **Stage 2（掛け合い生成）**:
+   - Stage 1で取得した情報を使用して掛け合いを生成
+   - サーチグラウンディングは使用せず、キャラクター設定を適用
+   - XML形式で7ターン以上、500文字以内で生成
+
+#### 処理フロー
+
+- **サーチグラウンディング使用が確定している場合**: 必ず2段階処理を実行
+- **サーチグラウンディング使用が確定していない場合**: Stage 1でサーチグラウンディングを使用し、実際に使用されたかどうかを判定。使用された場合は2段階処理、使用されなかった場合は通常の1段階処理
+
+#### API パラメータ
+
 - **API パラメータ**: `useSearchGrounding` を動的に制御
 - **フォールバック**: 検索機能が失敗した場合、自動的に検索なしで再試行
 - **エラー処理**: エラー時も会話を継続
@@ -377,12 +415,25 @@ Gemini には、XML タグのみを出力するよう指示します：
 GOOGLE_API_KEY=              # Google Gemini API キー（必須）
 ```
 
+### キャラクター設定環境変数
+```env
+NEXT_PUBLIC_STREAMER_NAME=ルピナス・ロゼッティ          # 配信者名
+NEXT_PUBLIC_STREAMER_NICKNAME=ルピナス                  # 配信者ニックネーム（省略時は自動抽出）
+NEXT_PUBLIC_CHARACTER_A_NAME=アイリス・ロゼッティ       # キャラクターA名
+NEXT_PUBLIC_CHARACTER_A_NICKNAME=アイリス               # キャラクターAニックネーム（省略時は自動抽出）
+NEXT_PUBLIC_CHARACTER_B_NAME=フィオナ・ロゼッティ       # キャラクターB名
+NEXT_PUBLIC_CHARACTER_B_NICKNAME=フィオナ               # キャラクターBニックネーム（省略時は自動抽出）
+NEXT_PUBLIC_DIALOGUE_MODE=true                         # 掛け合いモード有効化（true/false）
+```
+
 ### オプション環境変数
 ```env
 YOUTUBE_API_KEY=             # YouTube API キー（YouTube 機能使用時）
 NEXT_PUBLIC_AIVIS_SPEECH_SERVER_URL=http://127.0.0.1:10101
 NEXT_PUBLIC_VOICEVOX_SERVER_URL=http://127.0.0.1:50021
 NEXT_PUBLIC_SYSTEM_PROMPT=   # システムプロンプト（オプション）
+NEXT_PUBLIC_SYSTEM_PROMPT_A= # キャラクターA用システムプロンプト（オプション）
+NEXT_PUBLIC_SYSTEM_PROMPT_B= # キャラクターB用システムプロンプト（オプション）
 ```
 
 ---
@@ -576,24 +627,23 @@ npm start
 - ✅ Python バックエンドの削除
 - ✅ Gemini 2.0-flash 固定
 - ✅ AivisSpeech / VoiceVox のみ対応
-- ✅ Search Grounding（必要に応じて）
+- ✅ Search Grounding（必要に応じて、2段階処理対応）
 - ✅ 外部連携モード
 - ✅ YouTube コメント連携
 - ✅ Live2D / VRM 対応
 - ✅ 音声認識（ブラウザ API）
+- ✅ キャラクター名の環境変数対応（ハードコーディング削除）
+- ✅ キャラクター名取得ユーティリティ（`src/utils/characterNames.ts`）
+- ✅ 掛け合いモード（`NEXT_PUBLIC_DIALOGUE_MODE=true`）
+- ✅ 記憶システム（Long-term Memory）
 
 ---
 
 ## 実装予定機能
 
-- ⏳ **1タブ2体表示**（アイリス + フィオナ）
-- ⏳ **統合セリフ枠・会話ログ**
-- ⏳ **独立した音声合成**（各キャラクター別々）
-- ⏳ **独立した Live2D アニメーション**（各キャラクター別々）
-- ⏳ **Gemini XML 出力形式のパース**
 - ⏳ **企画システム（状態マシン）**
 - ⏳ **コメント接頭辞システムの実装**（IR/FI接頭辞の判定と処理を実装中、テスト待ち）
-- ⏳ **掛け合い生成ロジック**
+- ⏳ **その他の環境変数実装**（フェーズ6）
 
 ---
 
@@ -679,4 +729,4 @@ npm start
 
 ---
 
-最終更新: 2024年（リファクタリング後・仕様統合版）
+最終更新: 2025-01-27（キャラクター名環境変数対応・2段階処理実装後）

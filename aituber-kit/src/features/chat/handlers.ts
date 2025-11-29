@@ -39,21 +39,21 @@ let externalAssistantMessageId: string | null = null
  */
 const stripVercelMetadata = (text: string): string => {
   if (!text) return text
-  
+
   // エラーメッセージのパターンをチェック
   // 3:"An error occurred." のような形式はエラーメッセージ
   if (/^\d+:"An error occurred\."/.test(text.trim())) {
     console.warn('[handlers] AIからエラーメッセージを受信:', text)
     return '' // エラーメッセージは除去
   }
-  
+
   // 行に分割して処理
   const lines = text.split('\n')
   const cleanedLines: string[] = []
-  
+
   for (const line of lines) {
     const trimmedLine = line.trim()
-    
+
     // メタデータ行をスキップ
     // f:{"messageId":"..."} 形式
     if (/^f:\{/.test(trimmedLine)) continue
@@ -61,7 +61,7 @@ const stripVercelMetadata = (text: string): string => {
     if (/^e:\{/.test(trimmedLine)) continue
     // d:{...} 形式
     if (/^d:\{/.test(trimmedLine)) continue
-    
+
     // 0:"テキスト" 形式からテキストコンテンツを抽出
     // 注意: テキスト内に改行やエスケープ文字が含まれる可能性がある
     const textMatch = trimmedLine.match(/^\d+:"(.+)"$/)
@@ -74,7 +74,7 @@ const stripVercelMetadata = (text: string): string => {
       cleanedLines.push(extractedText)
       continue
     }
-    
+
     // 0:"テキスト（途中）" 形式（閉じ引用符がない場合）
     const partialTextMatch = trimmedLine.match(/^\d+:"(.+)$/)
     if (partialTextMatch) {
@@ -85,11 +85,11 @@ const stripVercelMetadata = (text: string): string => {
       cleanedLines.push(extractedText)
       continue
     }
-    
+
     // メタデータでない行は保持
     cleanedLines.push(line)
   }
-  
+
   // 行を結合（空白を入れずに結合）
   let cleaned = cleanedLines.join('')
   // 連続する空白を整理（ただし、改行は保持）
@@ -221,10 +221,10 @@ const handleSpeakAndStateUpdateForCharacter = (
   let cleanedSentence = sentence
   cleanedSentence = cleanedSentence.replace(/<[AB](?:\s+emotion=["'][^"']*["'])?>/gi, '')
   cleanedSentence = cleanedSentence.replace(/<\/[AB]>/gi, '')
-  
+
   // Vercel AI SDKのメタデータを除去
   cleanedSentence = stripVercelMetadata(cleanedSentence)
-  
+
   // 残っている可能性のある引用符を除去
   // 1. 先頭・末尾の引用符を除去
   cleanedSentence = cleanedSentence.replace(/^["']+|["']+$/g, '')
@@ -261,7 +261,7 @@ const handleSpeakAndStateUpdateForCharacter = (
   // 各XMLタグごとに新しいメッセージIDを生成
   const messageId = generateMessageId()
   const messageRole = character === 'A' ? 'assistant-A' : 'assistant-B'
-  
+
   // キャラクターA/B別々の音声設定を使用
   // メッセージは実際に音声が再生される前に追加（読み上げと同期）
   // onStartは音声合成開始時、実際の再生はspeakQueueで行われる
@@ -293,7 +293,7 @@ const handleSpeakAndStateUpdateForCharacter = (
         character
       })
       // デバッグ用：詳細を個別に出力
-      console.log('[handlers] メッセージ追加詳細:', 
+      console.log('[handlers] メッセージ追加詳細:',
         `messageId=${messageId}, ` +
         `role=${messageRole}, ` +
         `hasSearchGrounding=${hasSearchGrounding}, ` +
@@ -345,7 +345,7 @@ const speakWholeTextWithEmotions = (text: string) => {
         sentence,
         currentEmotionTag,
         currentSlideMessagesRef,
-        defaultCharacterId
+        'A' // defaultCharacterId fallback
       )
       localRemaining = afterSentence
       if (!afterSentence) currentEmotionTag = ''
@@ -356,7 +356,7 @@ const speakWholeTextWithEmotions = (text: string) => {
           localRemaining,
           currentEmotionTag,
           currentSlideMessagesRef,
-          defaultCharacterId
+          'A' // defaultCharacterId fallback
         )
       }
       break
@@ -412,11 +412,14 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
   let receivedChunksForSpeech = ''
   let receivedChunksForXML = '' // XML形式用のバッファ
   let currentMessageId: string | null = null
-  let currentMessageIdA: string | null = null // アイリス用メッセージID
-  let currentMessageIdB: string | null = null // フィオナ用メッセージID
+  const { getCharacterNames } = require('@/utils/characterNames')
+  const characterNames = getCharacterNames()
+  
+  let currentMessageIdA: string | null = null // キャラクターA用メッセージID
+  let currentMessageIdB: string | null = null // キャラクターB用メッセージID
   let currentMessageContent = ''
-  let currentMessageContentA = '' // アイリス用メッセージ内容
-  let currentMessageContentB = '' // フィオナ用メッセージ内容
+  let currentMessageContentA = '' // キャラクターA用メッセージ内容
+  let currentMessageContentB = '' // キャラクターB用メッセージ内容
   let currentEmotionTag = ''
   let isCodeBlock = false
   let codeBlockContent = ''
@@ -427,11 +430,11 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
   let lastProcessedCharacter: 'A' | 'B' | null = null // 最後に処理したキャラクター（交互チェック用）
   let pendingDialogue: { character: 'A' | 'B', emotion: EmotionType, text: string, hasSearchGrounding: boolean } | null = null // 同じキャラクターの連続セリフをまとめるためのバッファ
   let dialogueTurnCount = 0 // 掛け合いのターン数をカウント
-  
+
   // 掛け合いモードの場合、initialCharacterIdを使用、なければデフォルトでキャラクターAとして処理
   const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
   const defaultCharacterId: 'A' | 'B' | undefined = isDialogueMode ? (initialCharacterId || 'A') : undefined
-  
+
   console.log('[handlers] processAIResponse開始', {
     isDialogueMode,
     initialCharacterId,
@@ -441,7 +444,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
   try {
     while (true) {
       const { done, value } = await reader.read()
-      
+
       // デバッグ用：全てのチャンクを保存
       if (value) {
         allReceivedChunks += value
@@ -476,7 +479,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
             }
           }
         }
-        
+
         let textToAdd = value
 
         // XML形式の検出（最初のチャンクで判定）
@@ -507,7 +510,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
           // 従来の感情タグ形式の処理
           // 掛け合いモードの場合、デフォルトでキャラクターAとして処理
           const messageRole = isDialogueMode ? 'assistant-A' : 'assistant'
-          
+
           // メタデータのみのチャンクをスキップ
           const cleanedText = stripVercelMetadata(textToAdd)
           if (!cleanedText.trim()) {
@@ -523,17 +526,17 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
             }
             continue
           }
-          
+
           // 実際のコンテンツが来たことを記録
           hasReceivedActualContent = true
-          
+
           console.log('[handlers] テキストチャンク処理', {
             textToAdd: textToAdd.substring(0, 100),
             cleanedText: cleanedText.substring(0, 100),
             isDialogueMode,
             messageRole
           })
-          
+
           if (currentMessageId === null) {
             currentMessageId = generateMessageId()
             currentMessageContent = cleanedText
@@ -598,7 +601,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
         cleanedXML = cleanedXML.replace(/<(A|B)\s+emotion=\\"([^"]+)\\"\\>/g, '<$1 emotion="$2">')
         cleanedXML = cleanedXML.replace(/\\\\"/g, '"')
         cleanedXML = cleanedXML.replace(/\\\\/g, '\\')
-        
+
         console.log('[handlers] メタデータ除去後のXML', {
           cleanedXML: cleanedXML.substring(0, 500),
           cleanedXMLLength: cleanedXML.length
@@ -620,7 +623,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
             textPreview: tag.text.substring(0, 50)
           }))
         })
-        
+
         // 完全なXMLタグを処理
         // 各XMLタグごとに個別のメッセージを作成（同じキャラクターの複数セリフも分離）
         // ただし、メッセージは読み上げ開始時に追加する（読み上げと同期）
@@ -639,7 +642,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
           const xmlTagHasSearch = dialogue.hasSearchGrounding === true
           // 実際のサーチグラウンディング検出結果を優先（実際に使われた場合のみtrue）
           const dialogueHasSearchGrounding = hasSearchGrounding
-          
+
           console.log('[handlers] 🔍 サーチグラウンディング情報の決定:', {
             character,
             xmlTagHasSearch,
@@ -647,7 +650,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
             finalDialogueHasSearchGrounding: dialogueHasSearchGrounding,
             willShowSearchLabel: dialogueHasSearchGrounding
           })
-          
+
           // XMLパーサーで抽出されたテキストにも引用符が残っている可能性があるので除去
           // stripVercelMetadataで処理（0:"..."形式の残骸を除去）
           text = stripVercelMetadata(text)
@@ -661,7 +664,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
           text = text.replace(/([あ-んア-ン一-龯ー])(["'])([「」『』])/g, '$1$3') // 日本語文字と日本語引用符
           text = text.replace(/([「」『』])(["'])([あ-んア-ン一-龯ー])/g, '$1$3') // 日本語引用符と日本語文字
           text = text.replace(/([あ-んア-ン一-龯ー。！？])(["'])$/g, '$1') // 文末の引用符（例: 調べてみますね。" → 調べてみますね。）
-          
+
           // 同じキャラクターが連続する場合、前のセリフにまとめる
           if (lastProcessedCharacter === character && pendingDialogue) {
             // 同じキャラクターの連続セリフをまとめる
@@ -674,7 +677,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
             })
             continue // 次のセリフまで待つ
           }
-          
+
           // 前のキャラクターのセリフを処理（まとめたセリフがある場合）
           if (pendingDialogue && pendingDialogue.character !== character) {
             console.log('[handlers] 前のキャラクターのセリフを処理します', {
@@ -701,7 +704,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
             )
             pendingDialogue = null
           }
-          
+
           // 現在のセリフをバッファに保存
           pendingDialogue = {
             character,
@@ -710,7 +713,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
             hasSearchGrounding: dialogueHasSearchGrounding
           }
           lastProcessedCharacter = character
-          
+
           console.log('[handlers] XMLタグ処理中', {
             character,
             emotion,
@@ -724,7 +727,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
             willPassToSpeak: dialogueHasSearchGrounding || hasSearchGrounding
           })
           // デバッグ用：詳細を個別に出力
-          console.log('[handlers] XMLタグ詳細:', 
+          console.log('[handlers] XMLタグ詳細:',
             `character=${character}, ` +
             `emotion=${emotion}, ` +
             `dialogueHasSearchGrounding=${dialogueHasSearchGrounding}, ` +
@@ -733,10 +736,10 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
             `willPassToSpeak=${dialogueHasSearchGrounding || hasSearchGrounding}`
           )
         }
-        
+
         // 残りのテキストを保持
         receivedChunksForXML = remainingText
-        
+
         // チャンク処理後に残っているセリフを処理（次のチャンクが来る前に処理）
         // ただし、まだストリームが続く可能性があるので、ここでは処理しない
         // 最終処理でまとめて処理する
@@ -883,7 +886,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
             receivedChunksForSpeechLength: receivedChunksForSpeech.length
           })
         }
-        
+
         if (isXMLMode) {
           // XML形式の最終処理
           if (receivedChunksForXML.length > 0) {
@@ -932,7 +935,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
               const xmlTagHasSearch = dialogue.hasSearchGrounding === true
               // 実際のサーチグラウンディング検出結果を優先（実際に使われた場合のみtrue）
               const dialogueHasSearchGrounding = hasSearchGrounding
-              
+
               // XMLパーサーで抽出されたテキストにも引用符が残っている可能性があるので除去
               // stripVercelMetadataで処理（0:"..."形式の残骸を除去）
               text = stripVercelMetadata(text)
@@ -945,7 +948,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
               text = text.replace(/(\d)(["'])(\d)/g, '$1$3') // 数字間
               text = text.replace(/([あ-んア-ン一-龯ー])(["'])([「」『』])/g, '$1$3') // 日本語文字と日本語引用符
               text = text.replace(/([「」『』])(["'])([あ-んア-ン一-龯ー])/g, '$1$3') // 日本語引用符と日本語文字
-              
+
               // 同じキャラクターが連続する場合、前のセリフにまとめる
               if (lastProcessedCharacter === character && pendingDialogue) {
                 // 同じキャラクターの連続セリフをまとめる
@@ -958,7 +961,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
                 })
                 continue // 次のセリフまで待つ
               }
-              
+
               // 前のキャラクターのセリフを処理（まとめたセリフがある場合）
               if (pendingDialogue && pendingDialogue.character !== character) {
                 console.log('[handlers] 前のキャラクターのセリフを処理します（最終処理）', {
@@ -977,7 +980,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
                 )
                 pendingDialogue = null
               }
-              
+
               // 現在のセリフをバッファに保存
               pendingDialogue = {
                 character,
@@ -986,7 +989,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
                 hasSearchGrounding: dialogueHasSearchGrounding
               }
               lastProcessedCharacter = character
-              
+
               console.log('[handlers] XMLタグ処理中（最終処理）', {
                 character,
                 hasSearchGrounding: dialogueHasSearchGrounding,
@@ -996,7 +999,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
                 rawDialogue: JSON.stringify(dialogue)
               })
             }
-            
+
             // 最後に残っているセリフを処理
             if (pendingDialogue) {
               dialogueTurnCount++
@@ -1021,7 +1024,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
               )
               pendingDialogue = null
             }
-            
+
             // 掛け合いの最終統計
             if (isDialogueMode && dialogueTurnCount > 0) {
               console.log('[handlers] 📊 掛け合いの最終統計:', {
@@ -1301,7 +1304,7 @@ export const handleReceiveTextFromWsFn =
 // ============================================================
 
 export const handleSendChatFn = () => async (
-  text: string, 
+  text: string,
   characterId?: 'A' | 'B',
   options?: {
     isYouTubeComment?: boolean
@@ -1311,7 +1314,7 @@ export const handleSendChatFn = () => async (
   const newMessage = text
   const timestamp = new Date().toISOString()
   if (newMessage === null) return
-  
+
   const isYouTubeComment = options?.isYouTubeComment || false
   const listenerName = options?.listenerName
 
@@ -1383,22 +1386,62 @@ export const handleSendChatFn = () => async (
   const sessionId = generateSessionId()
 
   // メッセージ末尾に「サーチ」または「search」がある場合、サーチグラウンディングを強制有効化
+  // サーチグラウンディングが必要そうなキーワードを検出する関数
+  const shouldUseSearchGrounding = (messageText: string): boolean => {
+    const trimmedMessage = messageText.trim().toLowerCase()
+
+    // 明示的な「サーチ」検出
+    const searchPattern = /(サーチ|さーち|search)(\s*)$/i
+    if (searchPattern.test(trimmedMessage)) {
+      return true
+    }
+
+    // サーチグラウンディングが必要そうなキーワードパターン
+    const searchKeywords = [
+      // 最新情報関連
+      '最新', '最新情報', 'アップデート', 'update', '新機能', '新情報',
+      // 攻略情報関連
+      '攻略', '攻略法', '攻略方法', '攻略情報', '攻略ガイド',
+      // ゲーム情報関連
+      'ドラクエ', 'ドラゴンクエスト', 'dq', 'dragon quest',
+      'ポケモン', 'pokemon', 'ファイナルファンタジー', 'ff', 'final fantasy',
+      'モンスターハンター', 'mh', 'monster hunter',
+      // アニメ情報関連
+      'アニメ', 'anime', '放送', 'キャスト', 'cast',
+      // 流行・トレンド関連
+      '流行', 'トレンド', 'trend', '話題', 'バズ', 'buzz',
+      // コスメ関連
+      'コスメ', 'cosme', '化粧品', 'メイク', 'makeup',
+      // 時事関連
+      'ニュース', 'news', '時事', '社会情勢',
+      // 情報取得を求める表現
+      '教えて', '知りたい', '情報', '詳しく', '詳細',
+      'いつ', 'どこ', '誰', '何', 'どう', 'なぜ', 'なんで',
+      // 固有名詞の検索が必要そうな表現
+      'とは', 'って何', 'について', 'について教えて'
+    ]
+
+    // キーワードが含まれているかチェック
+    for (const keyword of searchKeywords) {
+      if (trimmedMessage.includes(keyword.toLowerCase())) {
+        return true
+      }
+    }
+
+    return false
+  }
+
   // ただし、企画中（slideMode）は無効
   let forceSearchGrounding = false
-  if (
-    !ss.slideMode &&
-    (newMessage.endsWith('サーチ') ||
-      newMessage.endsWith('さーち') ||
-      newMessage.endsWith('search') ||
-      newMessage.endsWith('Search') ||
-      newMessage.endsWith('SEARCH'))
-  ) {
-    forceSearchGrounding = true
-    info(
-      'メッセージ末尾の「サーチ」検出により、サーチグラウンディングを強制有効化',
-      undefined,
-      'handleSendChatFn'
-    )
+  if (!ss.slideMode) {
+    forceSearchGrounding = shouldUseSearchGrounding(newMessage)
+    if (forceSearchGrounding) {
+      info(
+        'メッセージ内容からサーチグラウンディングが必要と判定、強制有効化',
+        undefined,
+        'handleSendChatFn'
+      )
+    }
   }
 
   // システムプロンプトを構築
@@ -1465,12 +1508,55 @@ export const handleSendChatFn = () => async (
   // ========================================================
   const currentChatLog = homeStore.getState().chatLog
 
+  // サーチグラウンディングが強制されている場合、ユーザーメッセージの前に警告を追加
+  let processedMessages = messageSelectors.getProcessedMessages(
+    currentChatLog,
+    ss.includeTimestampInUserMessage
+  )
+
+  if (forceSearchGrounding && processedMessages.length > 0) {
+    const lastMessage = processedMessages[processedMessages.length - 1]
+    if (lastMessage.role === 'user') {
+      // ユーザーメッセージを「スクリプト作成タスク」として書き換える
+      // これにより、Geminiの「検索して答える」モードではなく「検索して創作する」モードを強制する
+      const originalContent = typeof lastMessage.content === 'string' ? lastMessage.content : ''
+
+      const { getCharacterNames } = require('@/utils/characterNames')
+      const characterNames = getCharacterNames()
+      
+      const taskMessage = `
+# TASK: Create a Dialogue Script
+**GOAL**: Write an entertaining dialogue script between ${characterNames.characterA.fullName} (A) and ${characterNames.characterB.fullName} (B) based on the TOPIC below.
+**TOPIC**: "${originalContent}"
+
+# INSTRUCTIONS
+1.  **SEARCH**: Use Google Search to find the latest, most accurate details about the TOPIC.
+2.  **SCRIPT**: Write a dialogue where ${characterNames.characterA.nickname} and ${characterNames.characterB.nickname} discuss these details.
+    - ${characterNames.characterA.nickname} (A): Energetic, excited about the news.
+    - ${characterNames.characterB.nickname} (B): Calm, explains the details.
+3.  **FORMAT**: Output **ONLY** in the following XML format.
+
+# MANDATORY XML FORMAT
+<A emotion="happy" search="true">Look! I found this info about [Topic]!</A>
+<B emotion="relaxed" search="true">That is interesting. It says here that...</B>
+... (continue for at least 7 turns) ...
+
+# RULES
+- **NO PLAIN TEXT**: Do not output summaries. Only XML tags.
+- **TAGS**: Every tag MUST have \`search="true"\`.
+- **LENGTH**: Minimum 7 turns.
+`
+
+      processedMessages = [
+        ...processedMessages.slice(0, -1),
+        { ...lastMessage, content: taskMessage }
+      ]
+    }
+  }
+
   const messages: Message[] = [
     { role: 'system', content: systemPrompt },
-    ...messageSelectors.getProcessedMessages(
-      currentChatLog,
-      ss.includeTimestampInUserMessage
-    ),
+    ...processedMessages,
   ]
 
   try {

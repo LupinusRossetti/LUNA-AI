@@ -590,7 +590,7 @@ const Character = () => {
         <div className="mb-4 text-xl font-bold">{t('CharacterName')}</div>
         <div className="space-y-2">
           <div>
-            <label className="block text-sm font-medium mb-1">キャラクターA（アイリス）</label>
+            <label className="block text-sm font-medium mb-1">キャラクターA</label>
             <input
               className="text-ellipsis px-4 py-2 w-full bg-white hover:bg-white-hover rounded-lg"
               type="text"
@@ -602,7 +602,7 @@ const Character = () => {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1">キャラクターB（フィオナ）</label>
+            <label className="block text-sm font-medium mb-1">キャラクターB</label>
             <input
               className="text-ellipsis px-4 py-2 w-full bg-white hover:bg-white-hover rounded-lg"
               type="text"
@@ -647,7 +647,7 @@ const Character = () => {
           <>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">キャラクターA（アイリス）のVRMモデル</label>
+                <label className="block text-sm font-medium mb-1">キャラクターAのVRMモデル</label>
                 <select
                   className="text-ellipsis px-4 py-2 w-full bg-white hover:bg-white-hover rounded-lg"
                   value={selectedVrmPath}
@@ -670,7 +670,7 @@ const Character = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">キャラクターB（フィオナ）のVRMモデル</label>
+                <label className="block text-sm font-medium mb-1">キャラクターBのVRMモデル</label>
                 <select
                   className="text-ellipsis px-4 py-2 w-full bg-white hover:bg-white-hover rounded-lg"
                   value={selectedVrmPath}
@@ -721,7 +721,7 @@ const Character = () => {
             </div>
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium mb-1">キャラクターA（アイリス）のLive2Dモデル</label>
+                <label className="block text-sm font-medium mb-1">キャラクターAのLive2Dモデル</label>
                 <select
                   className="text-ellipsis px-4 py-2 w-full bg-white hover:bg-white-hover rounded-lg mb-2"
                   value={selectedLive2DPathA}
@@ -747,7 +747,7 @@ const Character = () => {
                 )}
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">キャラクターB（フィオナ）のLive2Dモデル</label>
+                <label className="block text-sm font-medium mb-1">キャラクターBのLive2Dモデル</label>
                 <select
                   className="text-ellipsis px-4 py-2 w-full bg-white hover:bg-white-hover rounded-lg mb-2"
                   value={selectedLive2DPathB}
@@ -782,7 +782,7 @@ const Character = () => {
         {/* Character Position Controls - A/B分離 */}
         <div className="my-6 space-y-6">
           <div>
-            <div className="text-xl font-bold mb-4">キャラクターA（アイリス）の位置設定</div>
+            <div className="text-xl font-bold mb-4">キャラクターAの位置設定</div>
             <div className="mb-4">{t('CharacterPositionInfo')}</div>
             <div className="mb-2 text-sm font-medium">
               {t('CurrentStatus')}:{' '}
@@ -818,7 +818,7 @@ const Character = () => {
           </div>
           
           <div>
-            <div className="text-xl font-bold mb-4">キャラクターB（フィオナ）の位置設定</div>
+            <div className="text-xl font-bold mb-4">キャラクターBの位置設定</div>
             <div className="mb-4">{t('CharacterPositionInfo')}</div>
             <div className="mb-2 text-sm font-medium">
               {t('CurrentStatus')}:{' '}

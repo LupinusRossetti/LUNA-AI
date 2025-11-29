@@ -19,18 +19,17 @@ export type ParsedDialogue = {
  */
 export function parseDialogueXML(xmlText: string): ParsedDialogue[] {
   const results: ParsedDialogue[] = []
-  
-  // <A> または <B> タグを検索（search属性も検出）
-  const tagPattern = /<(A|B)(?:\s+emotion=["']([^"']+)["'])?(?:\s+search=["']([^"']+)["'])?>(.*?)<\/\1>/gs
-  
+
+  // 1. XML形式のパース (<A>...</A>)
+  const xmlTagPattern = /<(A|B)(?:\s+emotion=["']([^"']+)["'])?(?:\s+search=["']([^"']+)["'])?>(.*?)<\/\1>/gs
   let match
-  while ((match = tagPattern.exec(xmlText)) !== null) {
+  while ((match = xmlTagPattern.exec(xmlText)) !== null) {
     const character = match[1] as 'A' | 'B'
     const emotion = match[2] || 'neutral'
     const searchAttr = match[3] || ''
     const text = match[4] || ''
     const hasSearchGrounding = searchAttr === 'true' || searchAttr === '1'
-    
+
     if (text.trim()) {
       results.push({
         character,
@@ -40,7 +39,33 @@ export function parseDialogueXML(xmlText: string): ParsedDialogue[] {
       })
     }
   }
-  
+
+  // 2. LINE形式のパース (CHARACTER_A_NAME: [emotion] message)
+  // サーチグラウンディング時にXMLが崩れるため、この形式もサポート
+  if (results.length === 0) {
+    const { getCharacterNames } = require('@/utils/characterNames')
+    const characterNames = getCharacterNames()
+    const characterAUpper = characterNames.characterA.nickname.toUpperCase()
+    const characterBUpper = characterNames.characterB.nickname.toUpperCase()
+    const linePattern = new RegExp(`(${characterAUpper}|${characterBUpper}):\\s*(?:\\[(.*?)\\])?\\s*(.*)`, 'g')
+    let lineMatch
+    while ((lineMatch = linePattern.exec(xmlText)) !== null) {
+      const charName = lineMatch[1]
+      const character = charName === characterAUpper ? 'A' : 'B'
+      const emotion = lineMatch[2] || 'neutral'
+      const text = lineMatch[3] || ''
+
+      if (text.trim()) {
+        results.push({
+          character,
+          emotion,
+          text: text.trim(),
+          hasSearchGrounding: true, // LINE形式はサーチグラウンディング時のみ使用されるためtrue
+        })
+      }
+    }
+  }
+
   return results
 }
 
@@ -56,15 +81,15 @@ export function hasIncompleteXMLTag(text: string): boolean {
   const closeATag = /<\/A>/i.test(text)
   const openBTag = /<B(?:\s+[^>]*)?>/i.test(text)
   const closeBTag = /<\/B>/i.test(text)
-  
+
   // Aタグが開いているが閉じていない、またはBタグが開いているが閉じていない
   if (openATag && !closeATag) return true
   if (openBTag && !closeBTag) return true
-  
+
   // 終了タグがあるが、開始タグがない（不完全な状態）
   if (closeATag && !openATag) return true
   if (closeBTag && !openBTag) return true
-  
+
   return false
 }
 
@@ -81,7 +106,7 @@ export function extractCompleteXMLTags(text: string): {
 } {
   const results: ParsedDialogue[] = []
   let remainingText = text
-  
+
   // エスケープされた引用符を処理
   // \\"を"に変換（ただし、XML属性内のエスケープは正しく処理）
   let processedText = text
@@ -104,10 +129,10 @@ export function extractCompleteXMLTags(text: string): {
   processedText = processedText.replace(/\\\\\\/g, '\\\\')
   // 次に、\\を\に変換（ただし、\\\\は\\のまま）
   processedText = processedText.replace(/(?<!\\)\\(?!\\)/g, '')
-  
+
   // 完全なタグを順次抽出（search属性も検出）
   const tagPattern = /<(A|B)(?:\s+emotion=["']([^"']+)["'])?(?:\s+search=["']([^"']+)["'])?>(.*?)<\/\1>/gs
-  
+
   let lastIndex = 0
   let match
   while ((match = tagPattern.exec(processedText)) !== null) {
@@ -116,7 +141,7 @@ export function extractCompleteXMLTags(text: string): {
     const searchAttr = match[3] || ''
     const textContent = match[4] || ''
     const hasSearchGrounding = searchAttr === 'true' || searchAttr === '1'
-    
+
     if (textContent.trim()) {
       results.push({
         character,
@@ -125,17 +150,70 @@ export function extractCompleteXMLTags(text: string): {
         hasSearchGrounding,
       })
     }
-    
+
     lastIndex = match.index + match[0].length
   }
-  
-  // 最後にマッチした位置以降を残りのテキストとして保持
+
+  // XMLが見つからない場合、LINE形式を試す
+  if (results.length === 0) {
+    const { getCharacterNames } = require('@/utils/characterNames')
+    const characterNames = getCharacterNames()
+    const characterAUpper = characterNames.characterA.nickname.toUpperCase()
+    const characterBUpper = characterNames.characterB.nickname.toUpperCase()
+    const linePattern = new RegExp(`(${characterAUpper}|${characterBUpper}):\\s*(?:\\[(.*?)\\])?\\s*(.*?)(?=(?:${characterAUpper}:|${characterBUpper}:|$))`, 'gs')
+    // 注意: ストリーム処理なので、最後の行が不完全な可能性がある
+    // 改行で区切られていると仮定するか、次のCHARACTER_A/CHARACTER_Bが来るまで待つ
+
+    // シンプルなアプローチ: 改行で分割して処理
+    const lines = processedText.split('\n')
+    let currentPos = 0
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]
+      const lineMatchRegex = new RegExp(`^(${characterAUpper}|${characterBUpper}):\\s*(?:\\[(.*?)\\])?\\s*(.*)`)
+      const lineMatch = line.match(lineMatchRegex)
+
+      if (lineMatch) {
+        // 最後の行の場合、まだ続きがあるかもしれないのでスキップ（ただし改行で終わっていればOKだが...）
+        // 安全のため、最後の行は処理しない（次のチャンクで改行が来るのを待つ）
+        if (i === lines.length - 1 && !processedText.endsWith('\n')) {
+          break
+        }
+
+        const charName = lineMatch[1]
+        const character = charName === characterAUpper ? 'A' : 'B'
+        const emotion = lineMatch[2] || 'neutral'
+        const text = lineMatch[3] || ''
+
+        if (text.trim()) {
+          results.push({
+            character,
+            emotion,
+            text: text.trim(),
+            hasSearchGrounding: true,
+          })
+        }
+        lastIndex += line.length + 1 // +1 for newline
+      } else {
+        // マッチしない行も進める（ゴミデータとして無視するか、前の行の続きとするか...）
+        // ここでは単純に進める
+        lastIndex += line.length + 1
+      }
+    }
+  } else {
+    // 最後にマッチした位置以降を残りのテキストとして保持
+    remainingText = processedText.substring(lastIndex)
+    return {
+      completeTags: results,
+      remainingText,
+    }
+  }
+
+  // LINE形式の場合の残りテキスト
   remainingText = processedText.substring(lastIndex)
-  
+
   return {
     completeTags: results,
     remainingText,
   }
 }
-
-

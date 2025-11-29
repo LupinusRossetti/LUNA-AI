@@ -36,13 +36,30 @@
 
 現在、以下の種類の記憶を抽出・保存します：
 
-1. **user_name** (ユーザー名)
+1. **user** (ユーザー/配信者)
+   - 環境変数: `NEXT_PUBLIC_STREAMER_NAME`（デフォルト: "ルピナス・ロゼッティ"）
+   - ニックネーム環境変数: `NEXT_PUBLIC_STREAMER_NICKNAME`（デフォルト: フルネームから自動抽出）
    - 例: 「私の名前はルピナスです」
-   - キーワード: 名前、ユーザー名
+   - キーワード: 名前、ユーザー名、配信者名
 
-2. **user_preference** (好み)
-   - 例: 「ゲームが好きです」
-   - キーワード: 好み、好きなもの
+2. **characterA** (キャラクターA)
+   - 環境変数: `NEXT_PUBLIC_CHARACTER_A_NAME`（デフォルト: "アイリス・ロゼッティ"）
+   - ニックネーム環境変数: `NEXT_PUBLIC_CHARACTER_A_NICKNAME`（デフォルト: フルネームから自動抽出）
+   - 例: 「アイリスについて教えて」
+   - キーワード: キャラクターA名、キャラクターAのニックネーム
+
+3. **characterB** (キャラクターB)
+   - 環境変数: `NEXT_PUBLIC_CHARACTER_B_NAME`（デフォルト: "フィオナ・ロゼッティ"）
+   - ニックネーム環境変数: `NEXT_PUBLIC_CHARACTER_B_NICKNAME`（デフォルト: フルネームから自動抽出）
+   - 例: 「フィオナについて教えて」
+   - キーワード: キャラクターB名、キャラクターBのニックネーム
+
+4. **listener** (リスナー/視聴者)
+   - YouTubeコメントから抽出
+   - 例: 「リスナー名について教えて」
+
+5. **other** (その他)
+   - 上記以外の情報
 
 将来的には、以下の種類も追加予定：
 - **event** (出来事)
@@ -60,6 +77,12 @@
   - 「私は○○です」
   - 「名前は○○です」
   - 「○○と申します」
+  - 環境変数 `NEXT_PUBLIC_STREAMER_NAME` と `NEXT_PUBLIC_STREAMER_NICKNAME` を使用して判定
+
+- **キャラクター名の抽出**:
+  - 環境変数 `NEXT_PUBLIC_CHARACTER_A_NAME`, `NEXT_PUBLIC_CHARACTER_A_NICKNAME` を使用
+  - 環境変数 `NEXT_PUBLIC_CHARACTER_B_NAME`, `NEXT_PUBLIC_CHARACTER_B_NICKNAME` を使用
+  - キャラクター名取得ユーティリティ（`src/utils/characterNames.ts`）を使用
 
 - **好みの抽出**:
   - 「○○が好きです」
@@ -134,6 +157,7 @@ AIは、注入された記憶を参考にして：
 - `[handlers] 🔍 関連記憶を検索開始:` - 関連記憶の検索が開始されたか
 - `[memoryManager] 🔍 関連記憶を検索:` - 関連記憶が見つかったか
 - `[handlers] ✅ 関連記憶をシステムプロンプトに注入:` - システムプロンプトに記憶が注入されたか
+
 
 
 

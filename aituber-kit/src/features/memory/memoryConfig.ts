@@ -4,42 +4,23 @@
  */
 
 import { MemoryType } from './memoryTypes'
+import { getCharacterNames as getCharacterNamesUtil, CharacterNames } from '@/utils/characterNames'
 
 /**
  * キャラクター名と愛称を取得
  * クライアントサイドとサーバーサイドの両方で動作
+ * @deprecated この関数は後方互換性のため残しています。新しいコードでは @/utils/characterNames の getCharacterNames を使用してください。
  */
-export function getCharacterNames() {
-  // クライアントサイドでは window が存在する
-  const isClient = typeof window !== 'undefined'
-  
-  // 環境変数から取得（NEXT_PUBLIC_プレフィックスはクライアントサイドでも利用可能）
-  const streamerName = process.env.NEXT_PUBLIC_STREAMER_NAME || 'ルピナス・ロゼッティ'
-  const characterAName = process.env.NEXT_PUBLIC_CHARACTER_A_NAME || 'アイリス・ロゼッティ'
-  const characterBName = process.env.NEXT_PUBLIC_CHARACTER_B_NAME || 'フィオナ・ロゼッティ'
-  
-  // 愛称（ニックネーム）の環境変数（デフォルト値は名前から抽出）
-  // デフォルト値: フルネームから最初の部分を抽出（例: "ルピナス・ロゼッティ" → "ルピナス"）
-  const streamerNickname = process.env.NEXT_PUBLIC_STREAMER_NICKNAME || 
-    (streamerName.includes('・') ? streamerName.split('・')[0] : streamerName.split(' ')[0] || 'ルピナス')
-  const characterANickname = process.env.NEXT_PUBLIC_CHARACTER_A_NICKNAME || 
-    (characterAName.includes('・') ? characterAName.split('・')[0] : characterAName.split(' ')[0] || 'アイリス')
-  const characterBNickname = process.env.NEXT_PUBLIC_CHARACTER_B_NICKNAME || 
-    (characterBName.includes('・') ? characterBName.split('・')[0] : characterBName.split(' ')[0] || 'フィオナ')
-  
+export function getCharacterNames(): {
+  user: { fullName: string; nickname: string }
+  characterA: { fullName: string; nickname: string }
+  characterB: { fullName: string; nickname: string }
+} {
+  const names = getCharacterNamesUtil()
   return {
-    user: {
-      fullName: streamerName,
-      nickname: streamerNickname,
-    },
-    characterA: {
-      fullName: characterAName,
-      nickname: characterANickname,
-    },
-    characterB: {
-      fullName: characterBName,
-      nickname: characterBNickname,
-    },
+    user: names.streamer,
+    characterA: names.characterA,
+    characterB: names.characterB,
   }
 }
 

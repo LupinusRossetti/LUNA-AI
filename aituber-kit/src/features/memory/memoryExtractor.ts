@@ -3,7 +3,7 @@
  * ルピナス、リスナー、キャラクター情報のみを抽出
  */
 
-import { Memory, MemoryType, MemorySource, legacyMemoryTypeMap } from './memoryTypes'
+import { Memory, MemoryType, MemorySource, legacyMemoryTypeMap, getLegacyMemoryTypeMap } from './memoryTypes'
 import { saveMemory } from './memoryManager'
 import { getCharacterNames, getNamesForMemoryType } from './memoryConfig'
 
@@ -195,8 +195,9 @@ export function formatMemoriesForPrompt(memories: Memory[]): string {
   const memoryTexts = memories.map((memory, index) => {
     // 後方互換性: 古いタイプを新しいタイプに変換
     let memoryType = memory.type
-    if (legacyMemoryTypeMap[memoryType as string]) {
-      memoryType = legacyMemoryTypeMap[memoryType as string]
+    const dynamicMemoryTypeMap = getLegacyMemoryTypeMap()
+    if (dynamicMemoryTypeMap[memoryType as string] || legacyMemoryTypeMap[memoryType as string]) {
+      memoryType = dynamicMemoryTypeMap[memoryType as string] || legacyMemoryTypeMap[memoryType as string]
     }
     
     // 環境変数から名前を取得

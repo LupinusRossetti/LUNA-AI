@@ -56,3 +56,4 @@ echo You can now use start.bat to start the application.
 echo.
 pause
 
+

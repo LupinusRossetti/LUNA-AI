@@ -319,10 +319,17 @@ const Memory = () => {
                   const memories = data.memories || []
                   
                   // カテゴリごとにグループ化
+                  const streamerNickname = settingsStore((s) => s.streamerNickname) || process.env.NEXT_PUBLIC_STREAMER_NICKNAME || 'ルピナス'
+                  const characterANickname = settingsStore((s) => s.characterANickname) || process.env.NEXT_PUBLIC_CHARACTER_A_NICKNAME || 'アイリス'
+                  const characterBNickname = settingsStore((s) => s.characterBNickname) || process.env.NEXT_PUBLIC_CHARACTER_B_NICKNAME || 'フィオナ'
+                  
                   const categorized: Record<string, typeof memories> = {
-                    rupinus: [],
-                    iris: [],
-                    fiona: [],
+                    [streamerNickname.toLowerCase()]: [],
+                    rupinus: [], // 後方互換性のため残す
+                    [characterANickname.toLowerCase()]: [],
+                    iris: [], // 後方互換性のため残す
+                    [characterBNickname.toLowerCase()]: [],
+                    fiona: [], // 後方互換性のため残す
                     listener: [],
                     other: [],
                   }

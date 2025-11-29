@@ -127,18 +127,22 @@ const parseCommentPrefix = (comment: string): { characterId: 'A' | 'B' | undefin
   // 大文字に変換して判定
   const upperComment = trimmedComment.toUpperCase()
   
-  // IRで始まる場合（アイリス宛）
-  if (upperComment.startsWith('IR')) {
-    // IRの後に続く文字列を取得
-    const afterPrefix = trimmedComment.substring(2)
-    // 先頭の空白（全角スペース、半角スペース、タブなど）を除去
+  // 環境変数からキャラクター名を取得
+  const { getCharacterNames } = require('@/utils/characterNames')
+  const characterNames = getCharacterNames()
+  const characterAPrefix = characterNames.characterA.nickname.substring(0, 2).toUpperCase()
+  const characterBPrefix = characterNames.characterB.nickname.substring(0, 2).toUpperCase()
+  
+  // キャラクターAのプレフィックスで始まる場合
+  if (upperComment.startsWith(characterAPrefix)) {
+    const afterPrefix = trimmedComment.substring(characterAPrefix.length)
     const message = afterPrefix.replace(/^[\s\u3000]+/, '').trim()
     return { characterId: 'A', message }
   }
   
-  // FIで始まる場合（フィオナ宛）
-  if (upperComment.startsWith('FI')) {
-    const afterPrefix = trimmedComment.substring(2)
+  // キャラクターBのプレフィックスで始まる場合
+  if (upperComment.startsWith(characterBPrefix)) {
+    const afterPrefix = trimmedComment.substring(characterBPrefix.length)
     const message = afterPrefix.replace(/^[\s\u3000]+/, '').trim()
     return { characterId: 'B', message }
   }

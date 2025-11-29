@@ -9,7 +9,31 @@ export type MemoryType =
   | 'listener'   // リスナー（YouTubeコメント）
   | 'other'      // その他
 
-// 後方互換性のためのマッピング
+// 後方互換性のためのマッピング（環境変数から動的に生成）
+export function getLegacyMemoryTypeMap(): Record<string, MemoryType> {
+  const { getCharacterNames } = require('@/utils/characterNames')
+  const characterNames = getCharacterNames()
+  const streamerNickname = characterNames.streamer.nickname
+  const characterANickname = characterNames.characterA.nickname
+  const characterBNickname = characterNames.characterB.nickname
+  
+  return {
+    'rupinus_conversation': 'user',
+    'rupinus': 'user',
+    [streamerNickname.toLowerCase()]: 'user',
+    [streamerNickname.toLowerCase() + '_conversation']: 'user',
+    'iris': 'characterA', // 後方互換性のため残す
+    [characterANickname.toLowerCase()]: 'characterA',
+    [characterANickname.toLowerCase() + '_conversation']: 'characterA',
+    'fiona': 'characterB', // 後方互換性のため残す
+    [characterBNickname.toLowerCase()]: 'characterB',
+    [characterBNickname.toLowerCase() + '_conversation']: 'characterB',
+    'listener_conversation': 'listener',
+    'character_info': 'other',
+  }
+}
+
+// 後方互換性のためのマッピング（静的定義、後方互換性のため残す）
 export const legacyMemoryTypeMap: Record<string, MemoryType> = {
   'rupinus_conversation': 'user',
   'rupinus': 'user',
