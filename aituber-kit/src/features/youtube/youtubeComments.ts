@@ -16,27 +16,87 @@ export const getLiveChatId = async (
   liveId: string,
   youtubeKey: string
 ): Promise<string> => {
+  console.log('[youtubeComments] getLiveChatId 開始')
+  console.log('[youtubeComments] liveId:', liveId)
+  
   const params = {
     part: 'liveStreamingDetails',
     id: liveId,
     key: youtubeKey,
   }
   const query = new URLSearchParams(params)
-  const response = await fetch(
-    `https://youtube.googleapis.com/youtube/v3/videos?${query}`,
-    {
-      method: 'get',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+  
+  try {
+    const response = await fetch(
+      `https://youtube.googleapis.com/youtube/v3/videos?${query}`,
+      {
+        method: 'get',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    )
+    
+    console.log('[youtubeComments] getLiveChatId APIレスポンスステータス:', response.status, response.statusText)
+    
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[youtubeComments] getLiveChatId APIエラー:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText
+      })
+      
+      // クォータ超過エラーの確認
+      if (response.status === 403 || response.status === 429) {
+        try {
+          const errorJson = JSON.parse(errorText)
+          if (errorJson.error?.message?.includes('quota') || 
+              errorJson.error?.message?.includes('Quota') ||
+              errorJson.error?.message?.includes('exceeded')) {
+            console.error('[youtubeComments] ⚠️ YouTube API クォータ超過エラーが発生しました（getLiveChatId）')
+            console.error('[youtubeComments] エラー詳細:', errorJson.error)
+          }
+        } catch (e) {
+          // JSONパースエラーは無視
+        }
+      }
+      
+      return ''
     }
-  )
-  const json = await response.json()
-  if (json.items == undefined || json.items.length == 0) {
+    
+    const json = await response.json()
+    
+    // エラーレスポンスの確認
+    if (json.error) {
+      console.error('[youtubeComments] getLiveChatId APIエラーレスポンス:', json.error)
+      if (json.error.code === 403 || json.error.code === 429) {
+        if (json.error.message?.includes('quota') || 
+            json.error.message?.includes('Quota') ||
+            json.error.message?.includes('exceeded')) {
+          console.error('[youtubeComments] ⚠️ YouTube API クォータ超過エラーが発生しました（getLiveChatId）')
+        }
+      }
+      return ''
+    }
+    
+    if (json.items == undefined || json.items.length == 0) {
+      console.warn('[youtubeComments] getLiveChatId: 動画情報が見つかりませんでした')
+      return ''
+    }
+    
+    const liveChatId = json.items[0].liveStreamingDetails?.activeLiveChatId
+    console.log('[youtubeComments] getLiveChatId 成功:', liveChatId ? `${liveChatId.substring(0, 10)}...` : 'なし')
+    
+    if (!liveChatId) {
+      console.warn('[youtubeComments] getLiveChatId: activeLiveChatIdが取得できませんでした（配信が開始されていない可能性があります）')
+    }
+    
+    return liveChatId || ''
+  } catch (error) {
+    console.error('[youtubeComments] getLiveChatId エラー:', error)
     return ''
   }
-  const liveChatId = json.items[0].liveStreamingDetails.activeLiveChatId
-  return liveChatId
 }
 
 type YouTubeComment = {
@@ -47,13 +107,56 @@ type YouTubeComment = {
 
 type YouTubeComments = YouTubeComment[]
 
+/**
+ * コメントの接頭辞を判定して、キャラクターIDとメッセージを返す
+ * @param comment コメントテキスト
+ * @returns { characterId: 'A' | 'B' | undefined, message: string } キャラクターIDと接頭辞を除去したメッセージ
+ */
+const parseCommentPrefix = (comment: string): { characterId: 'A' | 'B' | undefined, message: string } => {
+  // 全角を半角に変換（I, R, F）
+  const normalizedComment = comment.replace(/[ＩＲＦ]/g, (char) => {
+    if (char === 'Ｉ') return 'I'
+    if (char === 'Ｒ') return 'R'
+    if (char === 'Ｆ') return 'F'
+    return char
+  })
+  
+  // 先頭の空白（全角スペース、半角スペース、タブなど）を除去
+  const trimmedComment = normalizedComment.trim()
+  
+  // 大文字に変換して判定
+  const upperComment = trimmedComment.toUpperCase()
+  
+  // IRで始まる場合（アイリス宛）
+  if (upperComment.startsWith('IR')) {
+    // IRの後に続く文字列を取得
+    const afterPrefix = trimmedComment.substring(2)
+    // 先頭の空白（全角スペース、半角スペース、タブなど）を除去
+    const message = afterPrefix.replace(/^[\s\u3000]+/, '').trim()
+    return { characterId: 'A', message }
+  }
+  
+  // FIで始まる場合（フィオナ宛）
+  if (upperComment.startsWith('FI')) {
+    const afterPrefix = trimmedComment.substring(2)
+    const message = afterPrefix.replace(/^[\s\u3000]+/, '').trim()
+    return { characterId: 'B', message }
+  }
+  
+  // 接頭辞がない場合
+  return { characterId: undefined, message: normalizedComment }
+}
+
 const retrieveLiveComments = async (
   activeLiveChatId: string,
   youtubeKey: string,
   youtubeNextPageToken: string,
   setYoutubeNextPageToken: (token: string) => void
 ): Promise<YouTubeComments> => {
-  console.log('retrieveLiveComments')
+  console.log('[youtubeComments] retrieveLiveComments 開始')
+  console.log('[youtubeComments] activeLiveChatId:', activeLiveChatId ? `${activeLiveChatId.substring(0, 10)}...` : 'なし')
+  console.log('[youtubeComments] youtubeNextPageToken:', youtubeNextPageToken ? 'あり' : 'なし')
+  
   let url =
     'https://youtube.googleapis.com/youtube/v3/liveChat/messages?liveChatId=' +
     activeLiveChatId +
@@ -62,48 +165,118 @@ const retrieveLiveComments = async (
   if (youtubeNextPageToken !== '' && youtubeNextPageToken !== undefined) {
     url = url + '&pageToken=' + youtubeNextPageToken
   }
-  const response = await fetch(url, {
-    method: 'get',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  })
-  const json = await response.json()
-  const items = json.items
-  setYoutubeNextPageToken(json.nextPageToken)
+  
+  try {
+    const response = await fetch(url, {
+      method: 'get',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+    
+    console.log('[youtubeComments] APIレスポンスステータス:', response.status, response.statusText)
+    
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[youtubeComments] APIエラー:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorText
+      })
+      
+      // クォータ超過エラーの確認
+      if (response.status === 403 || response.status === 429) {
+        try {
+          const errorJson = JSON.parse(errorText)
+          if (errorJson.error?.message?.includes('quota') || 
+              errorJson.error?.message?.includes('Quota') ||
+              errorJson.error?.message?.includes('exceeded')) {
+            console.error('[youtubeComments] ⚠️ YouTube API クォータ超過エラーが発生しました')
+            console.error('[youtubeComments] エラー詳細:', errorJson.error)
+          }
+        } catch (e) {
+          // JSONパースエラーは無視
+        }
+      }
+      
+      return []
+    }
+    
+    const json = await response.json()
+    
+    // エラーレスポンスの確認
+    if (json.error) {
+      console.error('[youtubeComments] APIエラーレスポンス:', json.error)
+      if (json.error.code === 403 || json.error.code === 429) {
+        if (json.error.message?.includes('quota') || 
+            json.error.message?.includes('Quota') ||
+            json.error.message?.includes('exceeded')) {
+          console.error('[youtubeComments] ⚠️ YouTube API クォータ超過エラーが発生しました')
+        }
+      }
+      return []
+    }
+    
+    const items = json.items || []
+    console.log('[youtubeComments] 取得したコメント数:', items.length)
+    
+    if (json.nextPageToken) {
+      console.log('[youtubeComments] nextPageTokenを設定:', json.nextPageToken.substring(0, 20) + '...')
+      setYoutubeNextPageToken(json.nextPageToken)
+    } else {
+      console.log('[youtubeComments] nextPageTokenなし（全てのコメントを取得済み）')
+    }
 
-  const comments = items
-    .map((item: any) => ({
-      userName: item.authorDetails.displayName,
-      userIconUrl: item.authorDetails.profileImageUrl,
-      userComment:
-        item.snippet.textMessageDetails?.messageText ||
-        item.snippet.superChatDetails?.userComment ||
-        '',
-    }))
-    .filter(
-      (comment: any) =>
-        comment.userComment !== '' && !comment.userComment.startsWith('#')
-    )
+    const comments = items
+      .map((item: any) => ({
+        userName: item.authorDetails.displayName,
+        userIconUrl: item.authorDetails.profileImageUrl,
+        userComment:
+          item.snippet.textMessageDetails?.messageText ||
+          item.snippet.superChatDetails?.userComment ||
+          '',
+      }))
+      .filter(
+        (comment: any) =>
+          comment.userComment !== '' && !comment.userComment.startsWith('#')
+      )
 
-  if (comments.length === 0) {
+    console.log('[youtubeComments] フィルタ後のコメント数:', comments.length)
+    if (comments.length > 0) {
+      console.log('[youtubeComments] コメント例:', comments.slice(0, 3).map(c => ({
+        userName: c.userName,
+        comment: c.userComment.substring(0, 50)
+      })))
+    }
+
+    return comments
+  } catch (error) {
+    console.error('[youtubeComments] retrieveLiveComments エラー:', error)
     return []
   }
-
-  return comments
 }
 
 export const fetchAndProcessComments = async (
-  handleSendChat: (text: string) => void
+  handleSendChat: (text: string, characterId?: 'A' | 'B', options?: { isYouTubeComment?: boolean, listenerName?: string }) => void | Promise<void>
 ): Promise<void> => {
   const ss = settingsStore.getState()
   const hs = homeStore.getState()
   const chatLog = messageSelectors.getTextAndImageMessages(hs.chatLog)
 
   try {
+    console.log('[youtubeComments] fetchAndProcessComments 開始')
+    console.log('[youtubeComments] 設定確認:', {
+      youtubeLiveId: ss.youtubeLiveId ? `${ss.youtubeLiveId.substring(0, 10)}...` : 'なし',
+      youtubeApiKey: ss.youtubeApiKey ? '設定済み' : 'なし',
+      youtubeMode: ss.youtubeMode,
+      youtubePlaying: ss.youtubePlaying,
+      chatProcessing: hs.chatProcessing
+    })
+    
     const liveChatId = await getLiveChatId(ss.youtubeLiveId, ss.youtubeApiKey)
 
     if (liveChatId) {
+      console.log('[youtubeComments] liveChatId取得成功、コメント取得を開始')
       // 会話の継続が必要かどうかを確認
       if (
         !ss.youtubeSleepMode &&
@@ -141,41 +314,84 @@ export const fetchAndProcessComments = async (
       if (youtubeComments.length > 0) {
         settingsStore.setState({ youtubeNoCommentCount: 0 })
         settingsStore.setState({ youtubeSleepMode: false })
-        let selectedComment = ''
-        if (ss.conversationContinuityMode) {
-          selectedComment = await getBestComment(chatLog, youtubeComments)
-        } else {
-          selectedComment =
-            youtubeComments[Math.floor(Math.random() * youtubeComments.length)]
-              .userComment
+        
+        // IR/FI接頭辞を持つコメントを優先的に選択
+        const commentsWithPrefix = youtubeComments.filter(c => {
+          const { characterId } = parseCommentPrefix(c.userComment)
+          return characterId !== undefined
+        })
+        
+        console.log('[youtubeComments] 接頭辞を持つコメント数:', commentsWithPrefix.length)
+        if (commentsWithPrefix.length > 0) {
+          console.log('[youtubeComments] 接頭辞を持つコメント例:', commentsWithPrefix.slice(0, 3).map(c => ({
+            userName: c.userName,
+            comment: c.userComment.substring(0, 50),
+            parsed: parseCommentPrefix(c.userComment)
+          })))
         }
+        
+        let selectedComment = ''
+        let selectedCommentObj: YouTubeComment | undefined
+        
+        // 接頭辞を持つコメントがある場合は、その中から選択
+        if (commentsWithPrefix.length > 0) {
+          if (ss.conversationContinuityMode) {
+            selectedComment = await getBestComment(chatLog, commentsWithPrefix)
+          } else {
+            selectedComment =
+              commentsWithPrefix[Math.floor(Math.random() * commentsWithPrefix.length)]
+                .userComment
+          }
+          selectedCommentObj = commentsWithPrefix.find(c => c.userComment === selectedComment)
+        } else {
+          // 接頭辞がないコメントは無視（通常モードではIR/FIのみ反応）
+          console.log('[youtubeComments] IR/FI接頭辞がないコメントは無視されます')
+          console.log('[youtubeComments] 取得したコメント（接頭辞なし）:', youtubeComments.slice(0, 5).map(c => ({
+            userName: c.userName,
+            comment: c.userComment.substring(0, 50)
+          })))
+          settingsStore.setState({ youtubeNoCommentCount: ss.youtubeNoCommentCount + 1 })
+          return
+        }
+        
         console.log('selectedYoutubeComment:', selectedComment)
         
         // 選択されたコメントのリスナー名を取得
-        const selectedCommentObj = youtubeComments.find(c => c.userComment === selectedComment)
         const listenerName = selectedCommentObj?.userName || '不明なリスナー'
         
-        console.log('[youtubeComments] リスナー名を取得:', {
+        // 接頭辞を解析
+        const { characterId, message } = parseCommentPrefix(selectedComment)
+        
+        console.log('[youtubeComments] コメント解析結果:', {
           listenerName,
-          comment: selectedComment.substring(0, 50)
+          originalComment: selectedComment.substring(0, 50),
+          characterId,
+          message: message.substring(0, 50)
         })
+        
+        // メッセージが空の場合は無視
+        if (!message || message.trim() === '') {
+          console.log('[youtubeComments] メッセージが空のため無視します')
+          return
+        }
 
         // handleSendChatにYouTubeコメント情報を渡す
-        // handleSendChatの型定義を確認して、適切な方法で渡す
-        // 暫定的に、handleSendChatの第3引数としてoptionsを渡す
         if (typeof handleSendChat === 'function') {
-          // handleSendChatが(options)を受け取る形式か、直接textを受け取る形式かを確認
-          // 現在の実装では、handleSendChatは(text: string, characterId?: 'A' | 'B')を受け取る
-          // そのため、リスナー名を別の方法で渡す必要がある
-          // 暫定的に、メッセージの先頭にリスナー名を含める方法を使用
-          // または、handleSendChatの型定義を拡張する必要がある
-          handleSendChat(selectedComment)
+          // characterIdとoptionsを指定して送信
+          await handleSendChat(message, characterId, {
+            isYouTubeComment: true,
+            listenerName: listenerName
+          })
         } else {
           // handleSendChatが関数でない場合（非同期関数など）
-          await handleSendChat(selectedComment)
+          await handleSendChat(message, characterId, {
+            isYouTubeComment: true,
+            listenerName: listenerName
+          })
         }
-      } else {
-        const noCommentCount = ss.youtubeNoCommentCount + 1
+    } else {
+      console.log('[youtubeComments] コメントが取得できませんでした（コメント数: 0）')
+      const noCommentCount = ss.youtubeNoCommentCount + 1
         if (ss.conversationContinuityMode) {
           if (
             noCommentCount < 3 ||
@@ -210,8 +426,16 @@ export const fetchAndProcessComments = async (
         console.log('YoutubeNoCommentCount:', noCommentCount)
         settingsStore.setState({ youtubeNoCommentCount: noCommentCount })
       }
+    } else {
+      console.warn('[youtubeComments] liveChatIdが取得できませんでした（配信が開始されていない、またはAPIエラーの可能性があります）')
     }
   } catch (error) {
-    console.error('Error fetching comments:', error)
+    console.error('[youtubeComments] fetchAndProcessComments エラー:', error)
+    if (error instanceof Error) {
+      console.error('[youtubeComments] エラー詳細:', {
+        message: error.message,
+        stack: error.stack
+      })
+    }
   }
 }

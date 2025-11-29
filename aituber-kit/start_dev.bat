@@ -1,13 +1,23 @@
 @echo off
+setlocal enabledelayedexpansion
 chcp 65001 >nul
 
 echo ============================================
-echo      AITuberKit - Simple Dev Mode (Duet)
+echo      AITuberKit - Development Mode
 echo ============================================
 echo.
 
 cd /d %~dp0
 
+REM Check if .env file exists
+if not exist ".env" (
+    echo Error: .env file not found.
+    echo Please copy example.env to .env file.
+    pause
+    exit /b 1
+)
+
+REM Clean up ports
 echo Killing processes on ports 3000 and 3001...
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3000"') do (
     taskkill /F /PID %%a >nul 2>&1
@@ -17,8 +27,10 @@ for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":3001"') do (
 )
 timeout /t 1 /nobreak >nul
 
+REM Set environment variables
 echo Setting DIALOGUE_MODE=true...
 set NEXT_PUBLIC_DIALOGUE_MODE=true
+set NEXT_PUBLIC_YOUTUBE_MODE=true
 
 echo Starting AivisSpeech server...
 if exist "C:\Program Files\AivisSpeech\AivisSpeech.exe" (

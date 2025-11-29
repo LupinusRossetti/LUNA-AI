@@ -6,3 +6,5 @@ export const getDefaultModel = () => defaultModel
 
 export const isMultiModalAvailable = (..._args: any[]) => true
 
+
+

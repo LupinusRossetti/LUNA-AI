@@ -64,3 +64,5 @@ export function error(message: string, data?: unknown, prefix?: string): void {
   log(message, { level: 'error', prefix, data })
 }
 
+
+
