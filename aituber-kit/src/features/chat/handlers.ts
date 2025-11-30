@@ -414,7 +414,7 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
   let currentMessageId: string | null = null
   const { getCharacterNames } = require('@/utils/characterNames')
   const characterNames = getCharacterNames()
-  
+
   let currentMessageIdA: string | null = null // キャラクターA用メッセージID
   let currentMessageIdB: string | null = null // キャラクターB用メッセージID
   let currentMessageContent = ''
@@ -442,138 +442,175 @@ export const processAIResponse = async (messages: Message[], initialCharacterId?
   })
 
   try {
-    while (true) {
+    // バッファリング処理
+    let buffer = ''
+    let isDone = false
+
+    while (!isDone) {
       const { done, value } = await reader.read()
+      if (done) {
+        isDone = true
+      }
 
       // デバッグ用：全てのチャンクを保存
       if (value) {
         allReceivedChunks += value
       }
 
+      if (isDone) {
+        // ストリーム終了時、バッファに残っている内容を処理
+        if (buffer.trim()) {
+          const line = buffer.trim()
+
+          // 最後の行がメタデータの場合
+          if (line.startsWith('f:{') || line.startsWith('e:{') || line.startsWith('d:{')) {
+            // 無視
+          } else if (line.startsWith('0:')) {
+            // テキストデータ
+            let textToAdd = line
+            // XMLモード判定
+            if (!isXMLMode && (textToAdd.includes('<A') || textToAdd.includes('<B'))) {
+              isXMLMode = true
+              console.log('[XML Mode] XML形式を検出（バッファ残）')
+            }
+
+            if (isXMLMode) {
+              const cleanedChunk = stripVercelMetadata(textToAdd)
+              if (cleanedChunk) {
+                receivedChunksForXML += cleanedChunk
+                hasReceivedActualContent = true
+              }
+            } else {
+              const cleanedText = stripVercelMetadata(textToAdd)
+              if (cleanedText.trim()) {
+                hasReceivedActualContent = true
+                if (currentMessageId === null) {
+                  currentMessageId = generateMessageId()
+                  currentMessageContent = cleanedText
+                  const displayContent = stripEmotionTagsForDisplay(currentMessageContent)
+                  homeStore.getState().upsertMessage({
+                    id: currentMessageId,
+                    role: isDialogueMode ? 'assistant-A' : 'assistant',
+                    content: displayContent,
+                  })
+                } else if (!isCodeBlock) {
+                  currentMessageContent += cleanedText
+                  const displayContent = stripEmotionTagsForDisplay(currentMessageContent)
+                  homeStore.getState().upsertMessage({
+                    id: currentMessageId,
+                    role: isDialogueMode ? 'assistant-A' : 'assistant',
+                    content: displayContent,
+                  })
+                }
+                receivedChunksForSpeech += textToAdd
+              }
+            }
+          }
+        }
+        // ここでbreakせず、下のXML/音声処理ロジックへ流す
+      }
+
       if (value) {
-        // メタデータ行をチェック（サーチグラウンディング情報）
-        // f:{"messageId":"0","hasSearchGrounding":true}\n の形式
-        const lines = value.split('\n')
+        // バッファに追加
+        buffer += value
+
+        // 改行で分割して処理
+        const lines = buffer.split('\n')
+
+        // 最後の要素は不完全な可能性があるためバッファに戻す
+        // ただし、もしvalueが改行で終わっていた場合、最後の要素は空文字になる
+        buffer = lines.pop() || ''
+
         for (const line of lines) {
-          const trimmedLine = line.trim()
-          if (trimmedLine.startsWith('f:{')) {
+          if (!line.trim()) continue
+
+          // メタデータ行をチェック（サーチグラウンディング情報）
+          if (line.startsWith('f:{')) {
             try {
-              const metadataStr = trimmedLine.substring(2) // "f:"を除去
+              const metadataStr = line.substring(2) // "f:"を除去
               const metadata = JSON.parse(metadataStr)
               if (metadata.hasSearchGrounding === true) {
                 hasSearchGrounding = true
                 console.log('[handlers] ✅ サーチグラウンディング検出（メタデータから）', {
                   hasSearchGrounding: true,
-                  metadata,
-                  line: trimmedLine
-                })
-              } else {
-                console.log('[handlers] ℹ️ サーチグラウンディング未検出（メタデータから）', {
-                  hasSearchGrounding: false,
-                  metadata,
-                  line: trimmedLine
+                  metadata
                 })
               }
             } catch (e) {
               // パースエラーは無視
             }
+            continue // メタデータ行はこれ以上処理しない
           }
-        }
 
-        let textToAdd = value
-
-        // XML形式の検出（最初のチャンクで判定）
-        if (!isXMLMode && (value.includes('<A') || value.includes('<B'))) {
-          isXMLMode = true
-          console.log('[XML Mode] XML形式を検出、XMLパーサーを使用します')
-        }
-
-        if (!isCodeBlock) {
-          const delimiterIdx = value.indexOf(CODE_DELIMITER)
-          if (delimiterIdx !== -1) {
-            textToAdd = value.substring(0, delimiterIdx)
-          }
-        }
-
-        // XML形式の場合は別処理
-        if (isXMLMode) {
-          // XMLモードでは、valueからメタデータを除去してから追加
-          // valueは0:"..."形式なので、stripVercelMetadataで処理
-          const cleanedChunk = stripVercelMetadata(value)
-          if (cleanedChunk) {
-            receivedChunksForXML += cleanedChunk
-            // 実際のコンテンツが来たことを記録
-            hasReceivedActualContent = true
-          }
-          // XMLタグの処理は後でまとめて行う
-        } else {
-          // 従来の感情タグ形式の処理
-          // 掛け合いモードの場合、デフォルトでキャラクターAとして処理
-          const messageRole = isDialogueMode ? 'assistant-A' : 'assistant'
-
-          // メタデータのみのチャンクをスキップ
-          const cleanedText = stripVercelMetadata(textToAdd)
-          if (!cleanedText.trim()) {
-            // メタデータのみの場合はスキップ（ただし、receivedChunksForSpeechには追加）
-            console.log('[handlers] メタデータのみのチャンクをスキップ', {
-              textToAdd: textToAdd.substring(0, 200),
-              textToAddLength: textToAdd.length,
-              fullTextToAdd: textToAdd // デバッグ用に全文を表示
-            })
-            // エラーメッセージの場合は、receivedChunksForSpeechには追加しない
-            if (!textToAdd.includes('An error occurred')) {
-              receivedChunksForSpeech += value
-            }
+          // エラーメッセージ等の他のメタデータもスキップ
+          if (line.startsWith('e:{') || line.startsWith('d:{')) {
             continue
           }
 
-          // 実際のコンテンツが来たことを記録
-          hasReceivedActualContent = true
+          let textToAdd = line
 
-          console.log('[handlers] テキストチャンク処理', {
-            textToAdd: textToAdd.substring(0, 100),
-            cleanedText: cleanedText.substring(0, 100),
-            isDialogueMode,
-            messageRole
-          })
+          // XML形式の検出
+          if (!isXMLMode && (line.includes('<A') || line.includes('<B'))) {
+            isXMLMode = true
+            console.log('[XML Mode] XML形式を検出、XMLパーサーを使用します')
+          }
 
-          if (currentMessageId === null) {
-            currentMessageId = generateMessageId()
-            currentMessageContent = cleanedText
-
-            if (currentMessageContent.trim()) {
-              const displayContent = stripEmotionTagsForDisplay(currentMessageContent)
-              console.log('[handlers] 新規メッセージ追加', {
-                id: currentMessageId,
-                role: messageRole,
-                content: displayContent.substring(0, 100),
-                contentLength: displayContent.length
-              })
-              homeStore.getState().upsertMessage({
-                id: currentMessageId,
-                role: messageRole,
-                content: displayContent,
-              })
-            }
-          } else if (!isCodeBlock) {
-            currentMessageContent += cleanedText
-            if (cleanedText.trim()) {
-              const displayContent = stripEmotionTagsForDisplay(currentMessageContent)
-              console.log('[handlers] メッセージ更新', {
-                id: currentMessageId,
-                role: messageRole,
-                content: displayContent.substring(0, 100),
-                contentLength: displayContent.length
-              })
-              homeStore.getState().upsertMessage({
-                id: currentMessageId,
-                role: messageRole,
-                content: displayContent,
-              })
+          if (!isCodeBlock) {
+            const delimiterIdx = line.indexOf(CODE_DELIMITER)
+            if (delimiterIdx !== -1) {
+              textToAdd = line.substring(0, delimiterIdx)
             }
           }
 
-          receivedChunksForSpeech += value
+          // XML形式の場合は別処理
+          if (isXMLMode) {
+            // XMLモードでは、lineからメタデータを除去してから追加
+            const cleanedChunk = stripVercelMetadata(line)
+            if (cleanedChunk) {
+              receivedChunksForXML += cleanedChunk
+              // 実際のコンテンツが来たことを記録
+              hasReceivedActualContent = true
+            }
+          } else {
+            // 従来の感情タグ形式の処理
+            const messageRole = isDialogueMode ? 'assistant-A' : 'assistant'
+
+            // メタデータのみのチャンクをスキップ
+            const cleanedText = stripVercelMetadata(textToAdd)
+            if (!cleanedText.trim()) {
+              // メタデータのみの場合はスキップ
+              continue
+            }
+
+            // 実際のコンテンツが来たことを記録
+            hasReceivedActualContent = true
+
+            if (currentMessageId === null) {
+              currentMessageId = generateMessageId()
+              currentMessageContent = cleanedText
+
+              if (currentMessageContent.trim()) {
+                const displayContent = stripEmotionTagsForDisplay(currentMessageContent)
+                homeStore.getState().upsertMessage({
+                  id: currentMessageId,
+                  role: messageRole,
+                  content: displayContent,
+                })
+              }
+            } else if (!isCodeBlock) {
+              currentMessageContent += cleanedText
+              if (cleanedText.trim()) {
+                const displayContent = stripEmotionTagsForDisplay(currentMessageContent)
+                homeStore.getState().upsertMessage({
+                  id: currentMessageId,
+                  role: messageRole,
+                  content: displayContent,
+                })
+              }
+            }
+
+            receivedChunksForSpeech += line
+          }
         }
       }
 
@@ -1505,9 +1542,9 @@ export const handleSendChatFn = () => async (
   // マルチモーダル対応: modalImageがある場合はメッセージに画像を含める
   let userMessageContent: Message['content'] = modalImage
     ? [
-        { type: 'text' as const, text: newMessage },
-        { type: 'image' as const, image: modalImage },
-      ]
+      { type: 'text' as const, text: newMessage },
+      { type: 'image' as const, image: modalImage },
+    ]
     : newMessage
 
   // === 内部AIログ更新 ===
@@ -1540,7 +1577,7 @@ export const handleSendChatFn = () => async (
 
       const { getCharacterNames } = require('@/utils/characterNames')
       const characterNames = getCharacterNames()
-      
+
       const taskMessage = `
 # TASK: Create a Dialogue Script
 **GOAL**: Write an entertaining dialogue script between ${characterNames.characterA.fullName} (A) and ${characterNames.characterB.fullName} (B) based on the TOPIC below.

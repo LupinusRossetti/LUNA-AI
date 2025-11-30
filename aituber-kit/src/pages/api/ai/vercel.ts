@@ -176,12 +176,12 @@ export default async function handler(req: NextRequest) {
 
     // 掛け合いモードの判定
     const isDialogueMode = process.env.NEXT_PUBLIC_DIALOGUE_MODE === 'true'
-    
+
     // サーチグラウンディングの使用状況を判定
     const hasDynamicRetrievalConfig = !!options.dynamicRetrievalConfig
     const willUseSearchGrounding = options.useSearchGrounding && !hasDynamicRetrievalConfig // dynamicRetrievalConfigがない場合は確実に使用
     const mightUseSearchGrounding = options.useSearchGrounding && hasDynamicRetrievalConfig // dynamicRetrievalConfigがある場合は動的判定
-    
+
     console.log('[vercel.ts] 🔍 2段階処理条件チェック:', {
       useSearchGrounding: options.useSearchGrounding,
       hasDynamicRetrievalConfig,
@@ -297,6 +297,7 @@ ${searchResult}
 3. 感情タグ（emotion）を付ける
 4. 最新情報を自然に会話に織り込む
 5. 500文字以内で7ターン以上生成
+6. 掛け合いの締めは話をきちんとまとめて完結させる、ルピナス(配信者)に話をふる、リスナーに話をふるのいずれかで終了しなければなりません。
 
 【重要】
 - XMLタグのみ出力（マークダウン不可）
@@ -369,7 +370,7 @@ ${searchResult}
           // 掛け合いを1段階で生成（7ターン以上500文字以内）
           if (!willUseSearchGrounding && !mightUseSearchGrounding) {
             console.log('[vercel.ts] 🔄 ケース2: サーチグラウンディング確実に不使用 → 1段階で掛け合い生成')
-            
+
             // 通常の処理（callAI）にフォールバック
             // callAI内で掛け合いモードのプロンプトが適用される
           }
@@ -463,6 +464,7 @@ ${cleanedResult}
 3. 感情タグ（emotion）を付ける
 4. 最新情報を自然に会話に織り込む
 5. 500文字以内で7ターン以上生成
+6. 掛け合いの締めは話をきちんとまとめて完結させる、ルピナス(配信者)に話をふる、リスナーに話をふるのいずれかで終了しなければなりません。
 
 【重要】
 - XMLタグのみ出力（マークダウン不可）
