@@ -214,7 +214,11 @@ const Chat = ({
           color: ui.nameColor,
         }}
       >
-        {role === 'user' ? ui.name : displayCharacterName}
+        {role === 'user' && isYoutube && msg?.listenerName
+          ? msg.listenerName
+          : role === 'user'
+          ? ui.name
+          : displayCharacterName}
       </div>
 
       {/* セリフ枠 */}

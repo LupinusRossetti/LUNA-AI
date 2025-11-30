@@ -9,6 +9,7 @@ export type Message = {
   type?: string
   youtube?: boolean
   hasSearchGrounding?: boolean // サーチグラウンディングが使用されたかどうか
+  listenerName?: string // YouTubeコメントからのリスナー名
 }
 
 export const EMOTIONS = [

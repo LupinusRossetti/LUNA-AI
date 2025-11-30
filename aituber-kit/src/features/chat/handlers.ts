@@ -1553,6 +1553,7 @@ export const handleSendChatFn = () => async (
     content: userMessageContent,
     timestamp,
     youtube: isYouTubeComment, // YouTubeコメントかどうか
+    listenerName: listenerName, // YouTubeコメントからのリスナー名
   })
 
   if (modalImage) homeStore.setState({ modalImage: '' })

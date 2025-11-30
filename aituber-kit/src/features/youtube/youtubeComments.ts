@@ -411,7 +411,8 @@ const retrieveLiveComments = async (
 }
 
 export const fetchAndProcessComments = async (
-  handleSendChat: (text: string, characterId?: 'A' | 'B', options?: { isYouTubeComment?: boolean, listenerName?: string }) => void | Promise<void>
+  handleSendChat: (text: string, characterId?: 'A' | 'B', options?: { isYouTubeComment?: boolean, listenerName?: string }) => void | Promise<void>,
+  skipEnqueue: boolean = false // 初回取得時にコメントをキューに追加しないフラグ
 ): Promise<void> => {
   const ss = settingsStore.getState()
   const hs = homeStore.getState()
@@ -512,6 +513,16 @@ export const fetchAndProcessComments = async (
                 parsed.type === 'project-command' ? 'project-command' : 'none',
             prefix: parsed.prefix,
             youtubeCommentId: ytComment.id,
+          }
+
+          // 初回取得時（skipEnqueue=true）は、全てのコメントを無視してnextPageTokenだけを更新
+          if (skipEnqueue) {
+            console.log('[youtubeComments] 初回取得のため、コメントを無視します（nextPageTokenのみ更新）:', {
+              userName: listenerName,
+              comment: ytComment.userComment.substring(0, 50),
+              type: parsed.type
+            })
+            continue
           }
 
           // 企画提案の場合

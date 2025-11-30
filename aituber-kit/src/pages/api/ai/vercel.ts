@@ -537,8 +537,33 @@ ${cleanedResult}
             }
           }
 
-        } catch (error) {
+        } catch (error: any) {
           console.error('[vercel.ts] 2段階処理でエラーが発生:', error)
+          
+          // 429エラー（クォータ超過）を検出
+          const isQuotaError = error?.name === 'AI_RetryError' || error?.name === 'AI_APICallError'
+          const hasQuotaMessage = error?.message?.includes('quota') || 
+                                   error?.message?.includes('Quota') || 
+                                   error?.message?.includes('exceeded') ||
+                                   error?.lastError?.statusCode === 429 ||
+                                   error?.errors?.[0]?.statusCode === 429
+          
+          if (isQuotaError && hasQuotaMessage) {
+            console.error('[vercel.ts] ⚠️ クォータ超過エラーを検出しました')
+            // クォータ超過エラーをクライアントに返す
+            return new Response(
+              JSON.stringify({
+                error: 'Quota exceeded',
+                errorCode: 'QUOTA_EXCEEDED',
+                message: 'API quota exceeded. Please try again later.',
+              }),
+              {
+                status: 429,
+                headers: { 'Content-Type': 'application/json' },
+              }
+            )
+          }
+          
           console.log('[vercel.ts] ⚠️ 通常処理にフォールバック')
         }
       }
@@ -733,6 +758,30 @@ ${cleanedResult}
             cause: streamError?.cause,
             name: streamError?.name
           })
+          
+          // 429エラー（クォータ超過）を検出
+          const isQuotaError = streamError?.name === 'AI_RetryError' || streamError?.name === 'AI_APICallError'
+          const hasQuotaMessage = streamError?.message?.includes('quota') || 
+                                   streamError?.message?.includes('Quota') || 
+                                   streamError?.message?.includes('exceeded') ||
+                                   streamError?.lastError?.statusCode === 429 ||
+                                   streamError?.errors?.[0]?.statusCode === 429
+          
+          if (isQuotaError && hasQuotaMessage) {
+            console.error('[vercel.ts] ⚠️ クォータ超過エラーを検出しました（streamText）')
+            return new Response(
+              JSON.stringify({
+                error: 'Quota exceeded',
+                errorCode: 'QUOTA_EXCEEDED',
+                message: 'API quota exceeded. Please try again later.',
+              }),
+              {
+                status: 429,
+                headers: { 'Content-Type': 'application/json' },
+              }
+            )
+          }
+          
           // ストリーミングエラーの場合、エラーメッセージをストリーム形式で返す
           const errorMessage = streamError?.message || 'An error occurred.'
           return new Response(
@@ -747,17 +796,43 @@ ${cleanedResult}
         }
       }
 
-      const result = await generateText({
-        model: aiInstance(effectiveModel, opts),
-        messages: messages as CoreMessage[],
-        temperature,
-        maxTokens,
-      })
+      try {
+        const result = await generateText({
+          model: aiInstance(effectiveModel, opts),
+          messages: messages as CoreMessage[],
+          temperature,
+          maxTokens,
+        })
 
-      return new Response(JSON.stringify({ text: result.text }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
+        return new Response(JSON.stringify({ text: result.text }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      } catch (generateError: any) {
+        // 429エラー（クォータ超過）を検出
+        const isQuotaError = generateError?.name === 'AI_RetryError' || generateError?.name === 'AI_APICallError'
+        const hasQuotaMessage = generateError?.message?.includes('quota') || 
+                                 generateError?.message?.includes('Quota') || 
+                                 generateError?.message?.includes('exceeded') ||
+                                 generateError?.lastError?.statusCode === 429 ||
+                                 generateError?.errors?.[0]?.statusCode === 429
+        
+        if (isQuotaError && hasQuotaMessage) {
+          console.error('[vercel.ts] ⚠️ クォータ超過エラーを検出しました（generateText）')
+          return new Response(
+            JSON.stringify({
+              error: 'Quota exceeded',
+              errorCode: 'QUOTA_EXCEEDED',
+              message: 'API quota exceeded. Please try again later.',
+            }),
+            {
+              status: 429,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          )
+        }
+        throw generateError
+      }
     }
 
     try {

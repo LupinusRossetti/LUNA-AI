@@ -13,6 +13,7 @@ import { Webcam } from './webcam'
 import Slides from './slides'
 import Capture from './capture'
 import { getLatestAssistantMessageWithRole } from '@/utils/assistantMessageUtils'
+import { QueueViewer } from './queueViewer'
 
 // モバイルデバイス検出用のカスタムフック
 const useIsMobile = () => {
@@ -62,6 +63,7 @@ export const Menu = () => {
     CHAT_LOG_MODE.BOTH // デフォルトはセリフ枠+会話ログ
   )
   const [showPermissionModal, setShowPermissionModal] = useState(false)
+  const [showQueueViewer, setShowQueueViewer] = useState(false)
   const imageFileInputRef = useRef<HTMLInputElement>(null)
 
   // ロングタップ用のステート
@@ -218,6 +220,14 @@ export const Menu = () => {
         >
           {showControlPanel && (
             <>
+              <div className="md:order-0 order-0">
+                <IconButton
+                  iconName="24/CommentFill"
+                  label="キュー"
+                  isProcessing={false}
+                  onClick={() => setShowQueueViewer(true)}
+                />
+              </div>
               <div className="md:order-1 order-2">
                 <IconButton
                   iconName="24/Settings"
@@ -372,6 +382,7 @@ export const Menu = () => {
           }
         }}
       />
+      <QueueViewer isOpen={showQueueViewer} onClose={() => setShowQueueViewer(false)} />
     </>
   )
 }

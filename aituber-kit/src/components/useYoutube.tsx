@@ -33,6 +33,8 @@ const useYoutube = ({ handleSendChat }: Params) => {
 
   // キュー処理中のフラグ（無限ループ防止）
   const isProcessingQueueRef = useRef(false)
+  // 初回取得フラグ（YouTubeモードON時の初回取得で既存コメントを無視するため）
+  const isFirstFetchRef = useRef(false)
 
   const fetchAndProcessCommentsCallback = useCallback(async () => {
     const ss = settingsStore.getState()
@@ -126,8 +128,15 @@ const useYoutube = ({ handleSendChat }: Params) => {
       return
     }
 
+    // 初回取得の場合は、既存コメントをキューに追加せず、nextPageTokenだけを更新
+    const isFirstFetch = isFirstFetchRef.current
+    if (isFirstFetch) {
+      console.log('[useYoutube] 初回取得: 既存コメントをキューに追加せず、nextPageTokenのみ更新します')
+      isFirstFetchRef.current = false // フラグをリセット
+    }
+    
     console.log('[useYoutube] fetchAndProcessComments を呼び出します')
-    await fetchAndProcessComments(handleSendChat)
+    await fetchAndProcessComments(handleSendChat, isFirstFetch)
   }, [handleSendChat])
 
   useEffect(() => {
@@ -139,10 +148,25 @@ const useYoutube = ({ handleSendChat }: Params) => {
     if (!youtubePlaying) {
       console.log('[useYoutube] youtubePlayingがfalseのため、コメント取得を開始しません')
       console.log('[useYoutube] メニューのYouTube再生ボタンをクリックして有効にしてください')
+      
+      // YouTubeモードOFF時にキューを全削除
+      console.log('[useYoutube] YouTubeモードOFF: キューを全削除します')
+      commentQueueStore.getState().clearAllQueues()
+      settingsStore.setState({ youtubeNextPageToken: '' })
+      
       return
     }
     
-    console.log('[useYoutube] コメント取得を開始します（初回実行）')
+    // YouTubeモードON時に、nextPageTokenをリセットして既存コメントを無視
+    console.log('[useYoutube] YouTubeモードON: nextPageTokenをリセットして、ON時点からのコメントのみ受け付けます')
+    settingsStore.setState({ youtubeNextPageToken: '' })
+    commentQueueStore.getState().clearAllQueues()
+    
+    // 初回取得フラグを設定（初回取得時に既存コメントをキューに追加しない）
+    isFirstFetchRef.current = true
+    
+    console.log('[useYoutube] コメント取得を開始します（初回実行: 既存コメントはキューに追加しません）')
+    // 初回取得を即座に実行（既存コメントを無視してnextPageTokenのみ更新）
     fetchAndProcessCommentsCallback()
 
     console.log('[useYoutube] インターバルを設定します（10秒ごと）')

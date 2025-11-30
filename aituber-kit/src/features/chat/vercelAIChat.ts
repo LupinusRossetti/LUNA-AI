@@ -132,6 +132,35 @@ const sendRequest = async (payload: RequestPayload) => {
 
   if (!response.ok) {
     const errorBody = await response.text()
+    
+    // 429エラー（クォータ超過）を検出
+    if (response.status === 429) {
+      try {
+        const errorJson = JSON.parse(errorBody)
+        if (errorJson.errorCode === 'QUOTA_EXCEEDED' || 
+            errorJson.message?.includes('quota') ||
+            errorJson.message?.includes('Quota') ||
+            errorJson.message?.includes('exceeded')) {
+          // トースト通知を表示
+          const { default: toastStore } = require('@/features/stores/toast')
+          const now = new Date()
+          const resetTime = new Date(now)
+          resetTime.setHours(17, 0, 0, 0)
+          if (now > resetTime) {
+            resetTime.setDate(resetTime.getDate() + 1)
+          }
+          const resetTimeStr = `${resetTime.getMonth() + 1}月${resetTime.getDate()}日17時`
+          toastStore.getState().addToast({
+            message: `クォータが上限に達しました。クォータがリセットされるのは${resetTimeStr}です(日本標準時)`,
+            type: 'error',
+            duration: 10000
+          })
+        }
+      } catch (e) {
+        // JSONパースエラーは無視
+      }
+    }
+    
     throw new Error(
       `Gemini API error (${response.status}): ${errorBody || 'Unknown'}`
     )

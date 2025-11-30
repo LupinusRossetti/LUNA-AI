@@ -148,6 +148,27 @@ const homeStore = create<HomeState>()(
             }
           }
 
+          // 重複チェック：同じcontentとtimestampのメッセージが既に存在する場合は追加しない
+          const contentStr = typeof message.content === 'string' 
+            ? message.content 
+            : JSON.stringify(message.content)
+          const isDuplicate = current.some((m) => {
+            const mContentStr = typeof m.content === 'string'
+              ? m.content
+              : JSON.stringify(m.content)
+            return mContentStr === contentStr && 
+                   m.timestamp === message.timestamp &&
+                   m.role === message.role
+          })
+          
+          if (isDuplicate) {
+            console.log('[homeStore] 重複メッセージをスキップ:', {
+              content: contentStr.substring(0, 50),
+              timestamp: message.timestamp
+            })
+            return { chatLog: current }
+          }
+
           // 新規メッセージを追加
           const newMessage: Message = {
             id: message.id ?? generateMessageId(),
@@ -158,6 +179,7 @@ const homeStore = create<HomeState>()(
             youtube: message.youtube,
             audio: message.audio,
             type: message.type,
+            listenerName: message.listenerName,
           };
           return { chatLog: [...current, newMessage] };
         });
