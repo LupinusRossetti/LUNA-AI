@@ -31,7 +31,7 @@ function loadEnvFile() {
 
   const envContent = fs.readFileSync(envPath, 'utf-8');
   const env = {};
-  
+
   envContent.split(/\r?\n/).forEach(line => {
     const trimmed = line.trim();
     if (trimmed && !trimmed.startsWith('#')) {
@@ -50,10 +50,10 @@ function loadEnvFile() {
   if (!env.NEXT_PUBLIC_YOUTUBE_API_KEY || env.NEXT_PUBLIC_YOUTUBE_API_KEY.trim() === '') {
     process.stderr.write('Warning: NEXT_PUBLIC_YOUTUBE_API_KEY not found or empty in .env\n');
   }
-  
+
   const hasChannelId = env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID && env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID.trim() !== '';
   const hasRefreshToken = env.REFRESH_TOKEN && env.REFRESH_TOKEN.trim() !== '';
-  
+
   if (!hasChannelId && !hasRefreshToken) {
     process.stderr.write('Warning: Neither NEXT_PUBLIC_YOUTUBE_CHANNEL_ID nor REFRESH_TOKEN found or empty in .env\n');
     process.stderr.write('Debug: Checking all loaded env keys...\n');
@@ -104,11 +104,11 @@ function getAccessTokenFromRefreshToken(clientId, clientSecret, refreshToken) {
 
     const req = https.request(options, (res) => {
       let data = '';
-      
+
       res.on('data', (chunk) => {
         data += chunk;
       });
-      
+
       res.on('end', () => {
         try {
           const json = JSON.parse(data);
@@ -137,7 +137,7 @@ function youtubeApiRequest(endpoint, params, accessToken = null) {
   return new Promise((resolve, reject) => {
     const query = new URLSearchParams(params).toString();
     const url = `https://youtube.googleapis.com/youtube/v3/${endpoint}?${query}`;
-    
+
     const urlObj = new URL(url);
     const options = {
       hostname: urlObj.hostname,
@@ -154,11 +154,11 @@ function youtubeApiRequest(endpoint, params, accessToken = null) {
 
     const req = https.request(options, (res) => {
       let data = '';
-      
+
       res.on('data', (chunk) => {
         data += chunk;
       });
-      
+
       res.on('end', () => {
         try {
           const json = JSON.parse(data);
@@ -186,33 +186,121 @@ async function getLiveStreamIdWithOAuth(apiKey, clientId, clientSecret, refreshT
   try {
     // アクセストークンを取得
     const accessToken = await getAccessTokenFromRefreshToken(clientId, clientSecret, refreshToken);
-    
+
     // 自分のチャンネルの情報を取得
     const channelResponse = await youtubeApiRequest('channels', {
       part: 'id',
       mine: 'true'
     }, accessToken);
-    
+
     if (!channelResponse.items || channelResponse.items.length === 0) {
       process.stderr.write('Error: Channel not found.\n');
       return { liveStreamId: '', isLive: false, latestVideoId: '', channelId: '' };
     }
-    
+
     const channelId = channelResponse.items[0].id;
-    
-    // 現在のライブ配信を検索
+
+    // まず liveBroadcasts.list を使用して配信中のライブ配信を取得
+    // このエンドポイントは限定公開・非公開のライブ配信も取得できる
+    process.stderr.write('Checking live broadcasts (including unlisted/private)...\n');
+    try {
+      const liveBroadcastsResponse = await youtubeApiRequest('liveBroadcasts', {
+        part: 'id,snippet,status',
+        mine: 'true',
+        broadcastType: 'all',
+        maxResults: 50
+      }, accessToken);
+
+      process.stderr.write(`liveBroadcasts returned ${liveBroadcastsResponse.items?.length || 0} broadcasts\n`);
+
+      if (liveBroadcastsResponse.items && liveBroadcastsResponse.items.length > 0) {
+        // lifeCycleStatus が 'live' のものをフィルタリング
+        const activeBroadcasts = liveBroadcastsResponse.items.filter(item =>
+          item.status?.lifeCycleStatus === 'live'
+        );
+
+        process.stderr.write(`Found ${activeBroadcasts.length} active broadcasts\n`);
+
+        if (activeBroadcasts.length > 0) {
+          // デバッグ: 見つかったライブ配信をすべて表示
+          process.stderr.write('Active broadcasts found:\n');
+          activeBroadcasts.forEach((item, index) => {
+            const broadcastId = item.id;
+            const publishedAt = item.snippet?.publishedAt;
+            const title = item.snippet?.title;
+            const privacyStatus = item.status?.privacyStatus;
+            const lifeCycleStatus = item.status?.lifeCycleStatus;
+            process.stderr.write(`  ${index + 1}. ${broadcastId} (published: ${publishedAt}, privacy: ${privacyStatus}, status: ${lifeCycleStatus})\n`);
+            if (title) {
+              process.stderr.write(`     Title: ${title}\n`);
+            }
+          });
+
+          // 最新の配信を取得（publishedAtでソート）
+          const liveVideos = activeBroadcasts
+            .map(item => ({
+              videoId: item.id,
+              publishedAt: item.snippet?.publishedAt
+            }))
+            .filter(item => item.videoId && item.videoId.length === 11 && /^[a-zA-Z0-9_-]+$/.test(item.videoId));
+
+          if (liveVideos.length > 0) {
+            // publishedAtでソートして最新のものを取得
+            liveVideos.sort((a, b) => new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0));
+            const videoId = liveVideos[0].videoId;
+            process.stderr.write(`Found active broadcast (latest): ${videoId}\n`);
+            return {
+              liveStreamId: videoId,
+              isLive: true,
+              latestVideoId: '',
+              channelId: channelId
+            };
+          }
+        }
+      }
+    } catch (e) {
+      process.stderr.write(`liveBroadcasts API call failed: ${e.message}\n`);
+      process.stderr.write('Falling back to search endpoint...\n');
+    }
+
+    // フォールバック: search エンドポイントを使用（公開配信のみ）
+    process.stderr.write('Checking public live streams via search endpoint...\n');
     const searchResponse = await youtubeApiRequest('search', {
       part: 'id,snippet',
       channelId: channelId,
       type: 'video',
       eventType: 'live',
-      maxResults: 1
+      maxResults: 10
     }, accessToken);
-    
+
+    process.stderr.write(`Live search returned ${searchResponse.items?.length || 0} items\n`);
+
     if (searchResponse.items && searchResponse.items.length > 0) {
-      const videoId = searchResponse.items[0].id?.videoId;
-      // 動画IDの形式を検証（通常11文字の英数字）
-      if (videoId && videoId.length === 11 && /^[a-zA-Z0-9_-]+$/.test(videoId)) {
+      // デバッグ: 見つかったライブ配信をすべて表示
+      process.stderr.write('Live streams found:\n');
+      searchResponse.items.forEach((item, index) => {
+        const videoId = item.id?.videoId;
+        const publishedAt = item.snippet?.publishedAt;
+        const title = item.snippet?.title;
+        process.stderr.write(`  ${index + 1}. ${videoId} (published: ${publishedAt})\n`);
+        if (title) {
+          process.stderr.write(`     Title: ${title}\n`);
+        }
+      });
+
+      // 最新の配信を取得（publishedAtでソート）
+      const liveVideos = searchResponse.items
+        .map(item => ({
+          videoId: item.id?.videoId,
+          publishedAt: item.snippet?.publishedAt
+        }))
+        .filter(item => item.videoId && item.videoId.length === 11 && /^[a-zA-Z0-9_-]+$/.test(item.videoId));
+
+      if (liveVideos.length > 0) {
+        // publishedAtでソートして最新のものを取得
+        liveVideos.sort((a, b) => new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0));
+        const videoId = liveVideos[0].videoId;
+        process.stderr.write(`Found live stream (latest): ${videoId}\n`);
         return {
           liveStreamId: videoId,
           isLive: true,
@@ -220,36 +308,97 @@ async function getLiveStreamIdWithOAuth(apiKey, clientId, clientSecret, refreshT
           channelId: channelId
         };
       } else {
-        process.stderr.write(`Warning: Invalid live stream ID format: ${videoId}\n`);
-        process.stderr.write(`Response: ${JSON.stringify(searchResponse.items[0].id)}\n`);
+        process.stderr.write(`Warning: No valid live stream IDs found\n`);
       }
     }
-    
-    // 予約配信（upcoming）を検索 - eventType: 'upcoming'を使用
-    process.stderr.write('Searching for upcoming streams with eventType: upcoming...\n');
+
+
+    // 予約配信（upcoming）を検索
+    process.stderr.write('No live streams found. Searching for upcoming streams...\n');
+
+    // まず liveBroadcasts.list を使用（限定公開も取得可能）
+    try {
+      const upcomingBroadcastsResponse = await youtubeApiRequest('liveBroadcasts', {
+        part: 'id,snippet,status',
+        mine: 'true',
+        broadcastType: 'all',
+        maxResults: 50
+      }, accessToken);
+
+      // lifeCycleStatus が 'created', 'ready', 'testing' のものをフィルタリング（upcoming）
+      const upcomingBroadcasts = (upcomingBroadcastsResponse.items || []).filter(item =>
+        item.status?.lifeCycleStatus === 'created' ||
+        item.status?.lifeCycleStatus === 'ready' ||
+        item.status?.lifeCycleStatus === 'testing'
+      );
+
+      process.stderr.write(`Found ${upcomingBroadcasts.length} upcoming broadcasts\n`);
+
+      if (upcomingBroadcasts.length > 0) {
+        // デバッグ: 見つかった予約配信をすべて表示
+        process.stderr.write('Upcoming broadcasts found:\n');
+        upcomingBroadcasts.forEach((item, index) => {
+          const broadcastId = item.id;
+          const publishedAt = item.snippet?.publishedAt;
+          const title = item.snippet?.title;
+          const privacyStatus = item.status?.privacyStatus;
+          const lifeCycleStatus = item.status?.lifeCycleStatus;
+          process.stderr.write(`  ${index + 1}. ${broadcastId} (published: ${publishedAt}, privacy: ${privacyStatus}, status: ${lifeCycleStatus})\n`);
+          if (title) {
+            process.stderr.write(`     Title: ${title}\n`);
+          }
+        });
+
+        // 最新の予約配信を取得（publishedAtでソート）
+        const upcomingVideos = upcomingBroadcasts
+          .map(item => ({
+            videoId: item.id,
+            publishedAt: item.snippet?.publishedAt
+          }))
+          .filter(item => item.videoId && item.videoId.length === 11 && /^[a-zA-Z0-9_-]+$/.test(item.videoId));
+
+        if (upcomingVideos.length > 0) {
+          // publishedAtでソートして最新のものを取得
+          upcomingVideos.sort((a, b) => new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0));
+          const videoId = upcomingVideos[0].videoId;
+          process.stderr.write(`Found upcoming broadcast (latest): ${videoId}\n`);
+          return {
+            liveStreamId: videoId,
+            isLive: false,
+            latestVideoId: videoId,
+            channelId: channelId
+          };
+        }
+      }
+    } catch (e) {
+      process.stderr.write(`liveBroadcasts (upcoming) API call failed: ${e.message}\n`);
+      process.stderr.write('Falling back to search endpoint for upcoming...\n');
+    }
+
+    // フォールバック: search エンドポイントを使用（公開配信のみ）
     try {
       const upcomingResponse = await youtubeApiRequest('search', {
         part: 'id,snippet',
         channelId: channelId,
         type: 'video',
         eventType: 'upcoming',
-        maxResults: 50
+        maxResults: 10
       }, accessToken);
-      
+
       process.stderr.write(`Upcoming search returned ${upcomingResponse.items?.length || 0} items\n`);
-      
+
       if (upcomingResponse.items && upcomingResponse.items.length > 0) {
-        // 最新の予約配信を取得（scheduledStartTimeが最も近いもの）
+        // 最新の予約配信を取得（publishedAtでソート）
         const upcomingVideos = upcomingResponse.items.map(item => ({
           videoId: item.id?.videoId,
           publishedAt: item.snippet?.publishedAt
         })).filter(item => item.videoId && item.videoId.length === 11 && /^[a-zA-Z0-9_-]+$/.test(item.videoId));
-        
+
         if (upcomingVideos.length > 0) {
           // publishedAtでソートして最新のものを取得
-          upcomingVideos.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+          upcomingVideos.sort((a, b) => new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0));
           const videoId = upcomingVideos[0].videoId;
-          process.stderr.write(`Found upcoming stream via eventType: ${videoId}\n`);
+          process.stderr.write(`Found upcoming stream (latest): ${videoId}\n`);
           return {
             liveStreamId: videoId,
             isLive: false,
@@ -264,7 +413,7 @@ async function getLiveStreamIdWithOAuth(apiKey, clientId, clientSecret, refreshT
         const ninetyDaysAgo = new Date();
         ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
         const publishedAfter = ninetyDaysAgo.toISOString();
-        
+
         process.stderr.write(`Searching for videos published after ${publishedAfter}...\n`);
         const recentVideoResponse = await youtubeApiRequest('search', {
           part: 'id,snippet',
@@ -274,13 +423,13 @@ async function getLiveStreamIdWithOAuth(apiKey, clientId, clientSecret, refreshT
           publishedAfter: publishedAfter,
           maxResults: 50
         }, accessToken);
-        
+
         if (recentVideoResponse.items && recentVideoResponse.items.length > 0) {
           // 予約配信（liveBroadcastContent: 'upcoming'）を探す
-          const upcomingVideo = recentVideoResponse.items.find(item => 
+          const upcomingVideo = recentVideoResponse.items.find(item =>
             item.snippet?.liveBroadcastContent === 'upcoming'
           );
-          
+
           if (upcomingVideo) {
             const videoId = upcomingVideo.id?.videoId;
             process.stderr.write(`Found upcoming stream in recent videos: ${videoId}\n`);
@@ -293,12 +442,12 @@ async function getLiveStreamIdWithOAuth(apiKey, clientId, clientSecret, refreshT
               };
             }
           }
-          
+
           // search APIで見つからない場合、videos APIで直接確認
           const recentVideoIds = recentVideoResponse.items
             .map(item => item.id?.videoId)
             .filter(id => id && id.length === 11 && /^[a-zA-Z0-9_-]+$/.test(id));
-          
+
           if (recentVideoIds.length > 0) {
             process.stderr.write(`Checking ${recentVideoIds.length} recent videos with videos API...\n`);
             for (let i = 0; i < recentVideoIds.length; i += 50) {
@@ -307,12 +456,12 @@ async function getLiveStreamIdWithOAuth(apiKey, clientId, clientSecret, refreshT
                 part: 'id,snippet,liveStreamingDetails',
                 id: batch.join(',')
               }, accessToken);
-              
+
               if (videoDetails.items && videoDetails.items.length > 0) {
-                const upcomingVideo = videoDetails.items.find(video => 
+                const upcomingVideo = videoDetails.items.find(video =>
                   video.snippet?.liveBroadcastContent === 'upcoming'
                 );
-                
+
                 if (upcomingVideo) {
                   const videoId = upcomingVideo.id;
                   process.stderr.write(`Found upcoming stream via videos API in recent videos: ${videoId}\n`);
@@ -333,128 +482,51 @@ async function getLiveStreamIdWithOAuth(apiKey, clientId, clientSecret, refreshT
     } catch (e) {
       process.stderr.write(`eventType: 'upcoming' search failed: ${e.message}\n`);
     }
-    
-    // ライブ配信がない場合、最新の動画を取得（予約配信も含む）
-    // より多くの動画を取得して予約配信を探す（maxResultsを増やす）
+
+    // 予約配信も見つからない場合、最新のアーカイブ配信を取得
+    process.stderr.write('No upcoming streams found. Getting latest archive video...\n');
     const latestVideoResponse = await youtubeApiRequest('search', {
       part: 'id,snippet',
       channelId: channelId,
       type: 'video',
       order: 'date',
-      maxResults: 50
+      maxResults: 10
     }, accessToken);
-    
-    // もし50件で見つからなければ、次のページも取得
-    let allVideos = latestVideoResponse.items || [];
-    let nextPageToken = latestVideoResponse.nextPageToken;
-    let pageCount = 1;
-    
-    while (nextPageToken && pageCount < 5) {
-      process.stderr.write(`Fetching page ${pageCount + 1}...\n`);
-      const nextPageResponse = await youtubeApiRequest('search', {
-        part: 'id,snippet',
-        channelId: channelId,
-        type: 'video',
-        order: 'date',
-        maxResults: 50,
-        pageToken: nextPageToken
-      }, accessToken);
-      
-      if (nextPageResponse.items && nextPageResponse.items.length > 0) {
-        allVideos = allVideos.concat(nextPageResponse.items);
-        nextPageToken = nextPageResponse.nextPageToken;
-        pageCount++;
-      } else {
-        break;
-      }
-    }
-    
-    process.stderr.write(`Total videos checked: ${allVideos.length}\n`);
-    
-    if (allVideos.length > 0) {
-      // 予約配信（liveBroadcastContent: 'upcoming'）を優先的に探す
-      const upcomingVideo = allVideos.find(item => {
+
+    if (latestVideoResponse.items && latestVideoResponse.items.length > 0) {
+      // アーカイブ配信（liveBroadcastContent: 'none'）を探す
+      const archiveVideo = latestVideoResponse.items.find(item => {
         const broadcastContent = item.snippet?.liveBroadcastContent;
-        return broadcastContent === 'upcoming';
+        return broadcastContent === 'none' || !broadcastContent;
       });
-      
-      if (upcomingVideo) {
-        const videoId = upcomingVideo.id?.videoId;
-        process.stderr.write(`Found upcoming stream: ${videoId}\n`);
+
+      if (archiveVideo) {
+        const videoId = archiveVideo.id?.videoId;
         if (videoId && videoId.length === 11 && /^[a-zA-Z0-9_-]+$/.test(videoId)) {
-          return {
-            liveStreamId: videoId,
-            isLive: false,
-            latestVideoId: videoId,
-            channelId: channelId
-          };
-        }
-      }
-      
-      // search APIで見つからない場合、videos APIで複数の動画を直接確認
-      // より多くの動画を確認する（50件まで）
-      process.stderr.write('Checking latest videos with videos API...\n');
-      const videoIdsToCheck = allVideos.slice(0, 50)
-        .map(item => item.id?.videoId)
-        .filter(id => id && id.length === 11 && /^[a-zA-Z0-9_-]+$/.test(id));
-      
-      if (videoIdsToCheck.length > 0) {
-        try {
-          // videos APIは最大50件まで一度に取得可能
-          // 50件を超える場合は複数回に分けて取得
-          for (let i = 0; i < videoIdsToCheck.length; i += 50) {
-            const batch = videoIdsToCheck.slice(i, i + 50);
-            const videoDetails = await youtubeApiRequest('videos', {
-              part: 'id,snippet,liveStreamingDetails',
-              id: batch.join(',')
-            }, accessToken);
-            
-            if (videoDetails.items && videoDetails.items.length > 0) {
-              const upcomingVideo = videoDetails.items.find(video => 
-                video.snippet?.liveBroadcastContent === 'upcoming'
-              );
-              
-              if (upcomingVideo) {
-                const videoId = upcomingVideo.id;
-                process.stderr.write(`Found upcoming stream via videos API: ${videoId}\n`);
-                if (videoId && videoId.length === 11 && /^[a-zA-Z0-9_-]+$/.test(videoId)) {
-                  return {
-                    liveStreamId: videoId,
-                    isLive: false,
-                    latestVideoId: videoId,
-                    channelId: channelId
-                  };
-                }
-              }
-            }
-          }
-        } catch (e) {
-          process.stderr.write(`Error checking video details: ${e.message}\n`);
-        }
-      }
-      
-      // それでも見つからない場合、最新の動画を返す
-      process.stderr.write(`No upcoming stream found in ${allVideos.length} videos\n`);
-      
-      // 予約配信がない場合、最新の動画を取得
-      if (allVideos.length > 0) {
-        const firstVideo = allVideos[0];
-        const videoId = firstVideo.id?.videoId;
-        // 動画IDの形式を検証（通常11文字の英数字）
-        if (videoId && videoId.length === 11 && /^[a-zA-Z0-9_-]+$/.test(videoId)) {
+          process.stderr.write(`Found latest archive video: ${videoId}\n`);
           return {
             liveStreamId: '',
             isLive: false,
             latestVideoId: videoId,
             channelId: channelId
           };
-        } else {
-          process.stderr.write(`Warning: Invalid video ID format: ${videoId}\n`);
-          process.stderr.write(`Response: ${JSON.stringify(firstVideo.id)}\n`);
         }
       }
+
+      // アーカイブ配信が見つからない場合、最新の動画を返す
+      const firstVideo = latestVideoResponse.items[0];
+      const videoId = firstVideo.id?.videoId;
+      if (videoId && videoId.length === 11 && /^[a-zA-Z0-9_-]+$/.test(videoId)) {
+        process.stderr.write(`Found latest video: ${videoId}\n`);
+        return {
+          liveStreamId: '',
+          isLive: false,
+          latestVideoId: videoId,
+          channelId: channelId
+        };
+      }
     }
-    
+
     return { liveStreamId: '', isLive: false, latestVideoId: '', channelId: channelId };
   } catch (error) {
     process.stderr.write(`Error getting live stream with OAuth: ${error.message}\n`);
@@ -465,20 +537,44 @@ async function getLiveStreamIdWithOAuth(apiKey, clientId, clientSecret, refreshT
 // API KeyとチャンネルIDを使って現在のライブ配信を取得
 async function getLiveStreamIdWithApiKey(apiKey, channelId) {
   try {
-    // 現在のライブ配信を検索
+    // 現在のライブ配信を検索（複数のライブ配信がある場合に備えて複数取得）
     const searchResponse = await youtubeApiRequest('search', {
       part: 'id,snippet',
       channelId: channelId,
       type: 'video',
       eventType: 'live',
-      maxResults: 1,
+      maxResults: 10,
       key: apiKey
     });
-    
+
+    process.stderr.write(`Live search returned ${searchResponse.items?.length || 0} items\n`);
+
     if (searchResponse.items && searchResponse.items.length > 0) {
-      const videoId = searchResponse.items[0].id?.videoId;
-      // 動画IDの形式を検証（通常11文字の英数字）
-      if (videoId && videoId.length === 11 && /^[a-zA-Z0-9_-]+$/.test(videoId)) {
+      // デバッグ: 見つかったライブ配信をすべて表示
+      process.stderr.write('Live streams found:\n');
+      searchResponse.items.forEach((item, index) => {
+        const videoId = item.id?.videoId;
+        const publishedAt = item.snippet?.publishedAt;
+        const title = item.snippet?.title;
+        process.stderr.write(`  ${index + 1}. ${videoId} (published: ${publishedAt})\n`);
+        if (title) {
+          process.stderr.write(`     Title: ${title}\n`);
+        }
+      });
+
+      // 最新の配信を取得（publishedAtでソート）
+      const liveVideos = searchResponse.items
+        .map(item => ({
+          videoId: item.id?.videoId,
+          publishedAt: item.snippet?.publishedAt
+        }))
+        .filter(item => item.videoId && item.videoId.length === 11 && /^[a-zA-Z0-9_-]+$/.test(item.videoId));
+
+      if (liveVideos.length > 0) {
+        // publishedAtでソートして最新のものを取得
+        liveVideos.sort((a, b) => new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0));
+        const videoId = liveVideos[0].videoId;
+        process.stderr.write(`Found live stream (latest): ${videoId}\n`);
         return {
           liveStreamId: videoId,
           isLive: true,
@@ -486,37 +582,36 @@ async function getLiveStreamIdWithApiKey(apiKey, channelId) {
           channelId: channelId
         };
       } else {
-        process.stderr.write(`Warning: Invalid live stream ID format: ${videoId}\n`);
-        process.stderr.write(`Response: ${JSON.stringify(searchResponse.items[0].id)}\n`);
+        process.stderr.write(`Warning: No valid live stream IDs found\n`);
       }
     }
-    
+
     // 予約配信（upcoming）を検索 - eventType: 'upcoming'を使用
-    process.stderr.write('Searching for upcoming streams with eventType: upcoming (API Key)...\n');
+    process.stderr.write('No live streams found. Searching for upcoming streams (API Key)...\n');
     try {
       const upcomingResponse = await youtubeApiRequest('search', {
         part: 'id,snippet',
         channelId: channelId,
         type: 'video',
         eventType: 'upcoming',
-        maxResults: 50,
+        maxResults: 10,
         key: apiKey
       });
-      
+
       process.stderr.write(`Upcoming search returned ${upcomingResponse.items?.length || 0} items\n`);
-      
+
       if (upcomingResponse.items && upcomingResponse.items.length > 0) {
-        // 最新の予約配信を取得（scheduledStartTimeが最も近いもの）
+        // 最新の予約配信を取得（publishedAtでソート）
         const upcomingVideos = upcomingResponse.items.map(item => ({
           videoId: item.id?.videoId,
           publishedAt: item.snippet?.publishedAt
         })).filter(item => item.videoId && item.videoId.length === 11 && /^[a-zA-Z0-9_-]+$/.test(item.videoId));
-        
+
         if (upcomingVideos.length > 0) {
           // publishedAtでソートして最新のものを取得
-          upcomingVideos.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+          upcomingVideos.sort((a, b) => new Date(b.publishedAt || 0) - new Date(a.publishedAt || 0));
           const videoId = upcomingVideos[0].videoId;
-          process.stderr.write(`Found upcoming stream via eventType: ${videoId}\n`);
+          process.stderr.write(`Found upcoming stream (latest, API Key): ${videoId}\n`);
           return {
             liveStreamId: videoId,
             isLive: false,
@@ -525,118 +620,57 @@ async function getLiveStreamIdWithApiKey(apiKey, channelId) {
           };
         }
       } else {
-        process.stderr.write('No upcoming streams found with eventType: upcoming\n');
+        process.stderr.write('No upcoming streams found with eventType: upcoming (API Key)\n');
       }
     } catch (e) {
-      process.stderr.write(`eventType: 'upcoming' search failed: ${e.message}\n`);
+      process.stderr.write(`eventType: 'upcoming' search failed (API Key): ${e.message}\n`);
     }
-    
-    // ライブ配信がない場合、最新の動画を取得（予約配信も含む）
+
+    // 予約配信も見つからない場合、最新のアーカイブ配信を取得
+    process.stderr.write('No upcoming streams found. Getting latest archive video (API Key)...\n');
     const latestVideoResponse = await youtubeApiRequest('search', {
       part: 'id,snippet',
       channelId: channelId,
       type: 'video',
       order: 'date',
-      maxResults: 50,
+      maxResults: 10,
       key: apiKey
     });
-    
-    // もし50件で見つからなければ、次のページも取得
-    let allVideos = latestVideoResponse.items || [];
-    let nextPageToken = latestVideoResponse.nextPageToken;
-    let pageCount = 1;
-    
-    while (nextPageToken && pageCount < 5) {
-      process.stderr.write(`Fetching page ${pageCount + 1} (API Key)...\n`);
-      const nextPageResponse = await youtubeApiRequest('search', {
-        part: 'id,snippet',
-        channelId: channelId,
-        type: 'video',
-        order: 'date',
-        maxResults: 50,
-        pageToken: nextPageToken,
-        key: apiKey
-      });
-      
-      if (nextPageResponse.items && nextPageResponse.items.length > 0) {
-        allVideos = allVideos.concat(nextPageResponse.items);
-        nextPageToken = nextPageResponse.nextPageToken;
-        pageCount++;
-      } else {
-        break;
-      }
-    }
-    
-    process.stderr.write(`Total videos checked: ${allVideos.length} (API Key)\n`);
-    
-    if (allVideos.length > 0) {
-      // 予約配信（liveBroadcastContent: 'upcoming'）を優先的に探す
-      const upcomingVideo = allVideos.find(item => {
+
+    if (latestVideoResponse.items && latestVideoResponse.items.length > 0) {
+      // アーカイブ配信（liveBroadcastContent: 'none'）を探す
+      const archiveVideo = latestVideoResponse.items.find(item => {
         const broadcastContent = item.snippet?.liveBroadcastContent;
-        return broadcastContent === 'upcoming';
+        return broadcastContent === 'none' || !broadcastContent;
       });
-      
-      if (upcomingVideo) {
-        const videoId = upcomingVideo.id?.videoId;
-        process.stderr.write(`Found upcoming stream: ${videoId}\n`);
+
+      if (archiveVideo) {
+        const videoId = archiveVideo.id?.videoId;
         if (videoId && videoId.length === 11 && /^[a-zA-Z0-9_-]+$/.test(videoId)) {
+          process.stderr.write(`Found latest archive video (API Key): ${videoId}\n`);
           return {
-            liveStreamId: videoId,
+            liveStreamId: '',
             isLive: false,
             latestVideoId: videoId,
             channelId: channelId
           };
         }
       }
-      
-      // 予約配信が見つからない場合、videos APIで最新の動画IDを直接確認
-      // 最新の動画IDを取得して、その動画が予約配信かどうか確認
-      const firstVideoId = latestVideoResponse.items[0].id?.videoId;
-      if (firstVideoId && firstVideoId.length === 11 && /^[a-zA-Z0-9_-]+$/.test(firstVideoId)) {
-        try {
-          const videoDetails = await youtubeApiRequest('videos', {
-            part: 'id,snippet,liveStreamingDetails',
-            id: firstVideoId,
-            key: apiKey
-          });
-          
-          if (videoDetails.items && videoDetails.items.length > 0) {
-            const video = videoDetails.items[0];
-            if (video.snippet?.liveBroadcastContent === 'upcoming') {
-              process.stderr.write(`Found upcoming stream via videos API: ${firstVideoId}\n`);
-              return {
-                liveStreamId: firstVideoId,
-                isLive: false,
-                latestVideoId: firstVideoId,
-                channelId: channelId
-              };
-            }
-          }
-        } catch (e) {
-          process.stderr.write(`Error checking video details: ${e.message}\n`);
-        }
-      }
-      
-      // それでも見つからない場合、最新の動画を返す
-      process.stderr.write(`No upcoming stream found in ${latestVideoResponse.items.length} videos\n`);
-      
-      // 予約配信がない場合、最新の動画を取得
+
+      // アーカイブ配信が見つからない場合、最新の動画を返す
       const firstVideo = latestVideoResponse.items[0];
       const videoId = firstVideo.id?.videoId;
-      // 動画IDの形式を検証（通常11文字の英数字）
       if (videoId && videoId.length === 11 && /^[a-zA-Z0-9_-]+$/.test(videoId)) {
+        process.stderr.write(`Found latest video (API Key): ${videoId}\n`);
         return {
           liveStreamId: '',
           isLive: false,
           latestVideoId: videoId,
           channelId: channelId
         };
-      } else {
-        process.stderr.write(`Warning: Invalid video ID format: ${videoId}\n`);
-        process.stderr.write(`Full response item: ${JSON.stringify(firstVideo, null, 2)}\n`);
       }
     }
-    
+
     return { liveStreamId: '', isLive: false, latestVideoId: '', channelId: channelId };
   } catch (error) {
     process.stderr.write(`Error getting live stream with API Key: ${error.message}\n`);
@@ -647,91 +681,14 @@ async function getLiveStreamIdWithApiKey(apiKey, channelId) {
 // メイン処理
 async function main() {
   const env = loadEnvFile();
-  
+
   const apiKey = env.NEXT_PUBLIC_YOUTUBE_API_KEY;
   const channelId = env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID;
   const clientId = env.CLIENT_ID;
   const clientSecret = env.CLIENT_SECRET;
   const refreshToken = env.REFRESH_TOKEN;
-  const upcomingStreamId = env.NEXT_PUBLIC_YOUTUBE_UPCOMING_STREAM_ID;
-
-  // 予約配信IDが.envに設定されている場合は、それを優先的に使用
-  if (upcomingStreamId && upcomingStreamId.trim() !== '') {
-    const videoId = upcomingStreamId.trim();
-    if (videoId.length === 11 && /^[a-zA-Z0-9_-]+$/.test(videoId)) {
-      process.stderr.write(`Using upcoming stream ID from .env: ${videoId}\n`);
-      // videos APIで確認
-      if (apiKey && apiKey.trim() !== '') {
-        try {
-          const videoDetails = await youtubeApiRequest('videos', {
-            part: 'id,snippet,liveStreamingDetails',
-            id: videoId,
-            key: apiKey
-          });
-          
-          if (videoDetails.items && videoDetails.items.length > 0) {
-            const video = videoDetails.items[0];
-            const broadcastContent = video.snippet?.liveBroadcastContent;
-            
-            // 配信中か予約配信かを確認
-            if (broadcastContent === 'live') {
-              process.stderr.write(`Confirmed live stream: ${videoId}\n`);
-              const result = {
-                liveStreamId: videoId,
-                isLive: true,
-                latestVideoId: videoId,
-                channelId: video.snippet?.channelId || ''
-              };
-              process.stdout.write(JSON.stringify(result) + '\n');
-              process.exit(0);
-            } else if (broadcastContent === 'upcoming') {
-              process.stderr.write(`Confirmed upcoming stream: ${videoId}\n`);
-              const result = {
-                liveStreamId: videoId,
-                isLive: false,
-                latestVideoId: videoId,
-                channelId: video.snippet?.channelId || ''
-              };
-              process.stdout.write(JSON.stringify(result) + '\n');
-              process.exit(0);
-            } else {
-              // 配信でも予約配信でもない場合でも、設定されているIDを返す
-              process.stderr.write(`Video ${videoId} is not live or upcoming (broadcast: ${broadcastContent}), but using it anyway\n`);
-              const result = {
-                liveStreamId: videoId,
-                isLive: false,
-                latestVideoId: videoId,
-                channelId: video.snippet?.channelId || ''
-              };
-              process.stdout.write(JSON.stringify(result) + '\n');
-              process.exit(0);
-            }
-          }
-        } catch (e) {
-          process.stderr.write(`Warning: Could not verify upcoming stream ID: ${e.message}\n`);
-          // 検証に失敗しても、設定されているIDを返す
-          const result = {
-            liveStreamId: videoId,
-            isLive: false,
-            latestVideoId: videoId,
-            channelId: ''
-          };
-          process.stdout.write(JSON.stringify(result) + '\n');
-          process.exit(0);
-        }
-      } else {
-        // API Keyがない場合でも、設定されているIDを返す
-        const result = {
-          liveStreamId: videoId,
-          isLive: false,
-          latestVideoId: videoId,
-          channelId: ''
-        };
-        process.stdout.write(JSON.stringify(result) + '\n');
-        process.exit(0);
-      }
-    }
-  }
+  // .envのNEXT_PUBLIC_YOUTUBE_UPCOMING_STREAM_IDは使用しない
+  // 優先順位: 1. 配信中 → 2. 予約中（最新） → 3. 最新アーカイブ
 
   if (!apiKey || apiKey.trim() === '') {
     process.stderr.write('Error: NEXT_PUBLIC_YOUTUBE_API_KEY is not set in .env file.\n');
@@ -742,8 +699,8 @@ async function main() {
 
   // OAuth認証が利用可能な場合は優先（空文字列でないことを確認）
   // OAuth認証を使えば、チャンネルIDは不要（自動で自分のチャンネルを取得）
-  if (clientId && clientSecret && refreshToken && 
-      clientId.trim() !== '' && clientSecret.trim() !== '' && refreshToken.trim() !== '') {
+  if (clientId && clientSecret && refreshToken &&
+    clientId.trim() !== '' && clientSecret.trim() !== '' && refreshToken.trim() !== '') {
     process.stderr.write('Using OAuth authentication to get live stream ID (Channel ID not required)...\n');
     result = await getLiveStreamIdWithOAuth(apiKey, clientId, clientSecret, refreshToken);
   } else if (channelId && channelId.trim() !== '') {

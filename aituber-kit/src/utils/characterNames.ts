@@ -89,3 +89,4 @@ export function getCharacterFullNameById(characterId: 'A' | 'B'): string {
   return getCharacterNameById(characterId).fullName
 }
 
+

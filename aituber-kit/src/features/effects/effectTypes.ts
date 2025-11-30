@@ -63,3 +63,4 @@ export interface EffectManager {
   getEffectsByType: (type: EffectType) => Effect[]
 }
 
+

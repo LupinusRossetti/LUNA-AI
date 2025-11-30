@@ -160,7 +160,7 @@ REM Open Chrome after server is ready
 echo.
 echo Opening Chrome...
 if not "!CHROME_URL!"=="" (
-    echo Opening URL: !CHROME_URL!
+    echo Opening YouTube URL: !CHROME_URL!
     if exist "C:\Program Files\Google\Chrome\Application\chrome.exe" (
         start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --new-window --start-maximized "!CHROME_URL!"
     ) else if exist "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" (
@@ -171,18 +171,19 @@ if not "!CHROME_URL!"=="" (
         echo Chrome not found. Opening with default browser...
         start "" "!CHROME_URL!"
     )
+    timeout /t 2 /nobreak >nul
+)
+
+echo Opening AITuberKit (localhost:3000)...
+if exist "C:\Program Files\Google\Chrome\Application\chrome.exe" (
+    start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --new-window --start-maximized "http://localhost:3000"
+) else if exist "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" (
+    start "" "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" --new-window --start-maximized "http://localhost:3000"
+) else if exist "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe" (
+    start "" "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe" --new-window --start-maximized "http://localhost:3000"
 ) else (
-    echo Opening localhost:3000...
-    if exist "C:\Program Files\Google\Chrome\Application\chrome.exe" (
-        start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --new-window --start-maximized "http://localhost:3000"
-    ) else if exist "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" (
-        start "" "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" --new-window --start-maximized "http://localhost:3000"
-    ) else if exist "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe" (
-        start "" "%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe" --new-window --start-maximized "http://localhost:3000"
-    ) else (
-        echo Chrome not found. Opening with default browser...
-        start "" "http://localhost:3000"
-    )
+    echo Chrome not found. Opening with default browser...
+    start "" "http://localhost:3000"
 )
 
 echo.

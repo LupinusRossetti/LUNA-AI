@@ -52,3 +52,4 @@ if (!foundLogs) {
   console.log('   - [vercel.ts] 🔍 サーチグラウンディング検出詳細:');
 }
 
+
